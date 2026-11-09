@@ -17,7 +17,7 @@ Use HTTPS. Every request except `GET /health` requires `X-Access-Control-Key`. T
 }
 ```
 
-The `subjectId` is `null` and `roles` is empty for an anonymous caller. The response is always a decision when the request is valid and the store is available:
+The client middleware uses the authenticated user's `oid` claim as `subjectId`; `subjectId` is `null` and `roles` is empty for an anonymous caller. An authenticated caller without `oid` receives HTTP 401 before the decision request. The response is always a decision when the request is valid and the store is available:
 
 ```json
 { "permit": true, "reason": "Permit", "authenticationRequired": false }

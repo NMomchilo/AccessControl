@@ -61,6 +61,36 @@ public sealed class AccessControlMiddlewareTests
     }
 
     [Fact]
+    public async Task InvokeAsync_AuthenticatedRequestWithoutOid_Returns401Async()
+    {
+        CapturingDecisionClient client = new();
+        AccessControlMiddleware sut = CreateMiddleware(client);
+        DefaultHttpContext context = CreateContext();
+        context.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.NameIdentifier, "other-id"), new Claim("sub", "other-sub")], "test"));
+
+        await sut.InvokeAsync(context);
+
+        Assert.Equal(401, context.Response.StatusCode);
+        Assert.Null(client.Request);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_MappedOidClaim_SendsOidAsSubjectAsync()
+    {
+        CapturingDecisionClient client = new();
+        AccessControlMiddleware sut = CreateMiddleware(client);
+        DefaultHttpContext context = CreateContext();
+        context.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim("http://schemas.microsoft.com/identity/claims/objectidentifier", "mapped-oid"),
+                new Claim(ClaimTypes.NameIdentifier, "other-id")], "test"));
+
+        await sut.InvokeAsync(context);
+
+        Assert.Equal("mapped-oid", client.Request?.SubjectId);
+    }
+
+    [Fact]
     public async Task InvokeAsync_UnknownRoute_PassesThroughAsync()
     {
         bool ran = false;
@@ -109,7 +139,8 @@ public sealed class AccessControlMiddlewareTests
         DefaultHttpContext context = new();
         context.Request.Method = "GET";
         context.User = new ClaimsPrincipal(new ClaimsIdentity(
-            [new Claim(ClaimTypes.NameIdentifier, "alice"), new Claim(ClaimTypes.Role, "advisor")], "test"));
+            [new Claim("oid", "alice"), new Claim(ClaimTypes.NameIdentifier, "other-id"),
+                new Claim("sub", "other-sub"), new Claim(ClaimTypes.Role, "advisor")], "test"));
         context.SetEndpoint(new RouteEndpointBuilder(_ => Task.CompletedTask, RoutePatternFactory.Parse(route), 0).Build());
         return context;
     }

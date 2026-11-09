@@ -145,7 +145,7 @@
       "DecisionRequest": {
         "type": "object", "required": ["roles", "module", "httpMethod", "routeTemplate", "tenantId"],
         "properties": {
-          "subjectId": { "type": "string", "nullable": true, "description": "Authenticated user ID, or null for an anonymous request.", "example": "alice" },
+          "subjectId": { "type": "string", "nullable": true, "description": "The validated Entra JWT oid claim, or null for an anonymous request.", "example": "alice" },
           "roles": { "type": "array", "items": { "type": "string" }, "description": "Trusted application roles from the consuming service. Use an empty list for anonymous callers." },
           "module": { "type": "string", "example": "customers" },
           "httpMethod": { "type": "string", "example": "GET" },

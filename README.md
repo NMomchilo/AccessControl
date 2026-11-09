@@ -35,10 +35,12 @@ Pack `AccessControl.Contracts` and `AccessControl.Client`, place both packages i
 ```powershell
 dotnet pack src/AccessControl.Contracts -c Release -o artifacts/packages
 dotnet pack src/AccessControl.Client -c Release -o artifacts/packages
-dotnet add <consumer-project.csproj> package AccessControl.Client --version 0.2.0 --source artifacts/packages
+dotnet add <consumer-project.csproj> package AccessControl.Client --version 0.2.1 --source artifacts/packages
 ```
 
 The consuming service authenticates users as usual. Add the middleware after routing and authentication, before authorization and controllers:
+
+The middleware uses the validated JWT's `oid` claim as `subjectId`, including its URI claim type when ASP.NET Core maps inbound claims. An authenticated caller without an object ID receives HTTP 401. It reads application roles from `ClaimTypes.Role` or `role` claims on `HttpContext.User`.
 
 ```csharp
 builder.Services.AddAuthentication(/* existing scheme */);

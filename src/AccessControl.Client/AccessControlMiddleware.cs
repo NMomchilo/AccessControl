@@ -43,11 +43,12 @@ public sealed class AccessControlMiddleware(
 
         bool authenticated = context.User.Identity?.IsAuthenticated == true;
         string? subjectId = authenticated
-            ? context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub")
+            ? context.User.FindFirstValue("oid") ??
+                context.User.FindFirstValue("http://schemas.microsoft.com/identity/claims/objectidentifier")
             : null;
         if (authenticated && string.IsNullOrWhiteSpace(subjectId))
         {
-            logger.LogWarning("Authenticated request has no subject claim for {Method} {Route}; trace {TraceId}", method, route, context.TraceIdentifier);
+            logger.LogWarning("Authenticated request has no oid claim for {Method} {Route}; trace {TraceId}", method, route, context.TraceIdentifier);
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
