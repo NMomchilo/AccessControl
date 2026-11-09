@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>AccessControl.Contracts</PackageId>
+    <Version>0.2.0</Version>
+    <Description>Transport contracts for the standalone Access Control service.</Description>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,44 @@
+@host = https://localhost:7001
+@decisionKey = replace-with-decision-key
+@adminKey = replace-with-admin-key
+
+GET {{host}}/health
+
+### Decision
+POST {{host}}/v1/decisions
+Content-Type: application/json
+X-Access-Control-Key: {{decisionKey}}
+
+{
+  "subjectId": "alice",
+  "roles": ["advisor"],
+  "module": "customers",
+  "httpMethod": "GET",
+  "routeTemplate": "/customers/{id}",
+  "tenantId": "tenant-a"
+}
+
+### Endpoint policy
+PUT {{host}}/v1/policies
+Content-Type: application/json
+X-Access-Control-Key: {{adminKey}}
+
+{
+  "tenantId": "tenant-a",
+  "module": "customers",
+  "httpMethod": "GET",
+  "routeTemplate": "/customers/{id}",
+  "isPublic": false,
+  "requiredEntitlements": ["customers.view"]
+}
+
+### Role grant
+PUT {{host}}/v1/roles/entitlements
+Content-Type: application/json
+X-Access-Control-Key: {{adminKey}}
+
+{
+  "tenantId": "tenant-a",
+  "role": "advisor",
+  "entitlements": ["customers.view"]
+}

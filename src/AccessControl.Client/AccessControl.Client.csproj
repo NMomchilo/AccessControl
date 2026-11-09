@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AccessControl.Contracts\AccessControl.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>AccessControl.Client</PackageId>
+    <Version>0.2.0</Version>
+    <Description>Fail-closed ASP.NET Core authorization middleware for the standalone Access Control service.</Description>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,206 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Access Control Service API",
+    "version": "1.0.0",
+    "description": "Manage endpoint policies and role entitlements, then ask whether a request may continue. A policy is identified by tenant, module, HTTP method, and route template. Required entitlements use OR semantics. A missing policy denies access."
+  },
+  "servers": [
+    { "url": "http://localhost:5219", "description": "Local Development launch profile" }
+  ],
+  "tags": [
+    { "name": "Health", "description": "Liveness check" },
+    { "name": "Decisions", "description": "Authorization decisions for consuming services" },
+    { "name": "Policies", "description": "Administrator endpoint policy management" },
+    { "name": "Role entitlements", "description": "Administrator role grant management" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Check whether the service process responds",
+        "description": "This is a liveness response; it does not check database readiness.",
+        "operationId": "getHealth",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service process is running",
+            "content": { "application/json": { "schema": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "example": "ok" } } } } }
+          }
+        }
+      }
+    },
+    "/v1/decisions": {
+      "post": {
+        "tags": ["Decisions"],
+        "summary": "Evaluate one endpoint request",
+        "description": "Returns HTTP 200 for both permit and deny. Inspect permit, reason, and authenticationRequired. The caller supplies a trusted subject and roles; this endpoint does not validate a user JWT. Public policies permit a null subject. Protected policies require a subject and a role grant matching any required entitlement.",
+        "operationId": "decideAccess",
+        "security": [{ "DecisionApiKey": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DecisionRequest" }, "example": { "subjectId": "alice", "roles": ["advisor"], "module": "customers", "httpMethod": "GET", "routeTemplate": "/customers/{id}", "tenantId": "default" } } }
+        },
+        "responses": {
+          "200": { "description": "Authorization result, including denials", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DecisionResponse" }, "examples": { "permit": { "value": { "permit": true, "reason": "Permit", "authenticationRequired": false } }, "deny": { "value": { "permit": false, "reason": "Required entitlement missing", "authenticationRequired": false } }, "anonymousProtected": { "value": { "permit": false, "reason": "Authentication required", "authenticationRequired": true } } } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      }
+    },
+    "/v1/policies": {
+      "get": {
+        "tags": ["Policies"],
+        "summary": "Get an endpoint policy",
+        "operationId": "getPolicy",
+        "security": [{ "AdminApiKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/Module" },
+          { "$ref": "#/components/parameters/HttpMethod" },
+          { "$ref": "#/components/parameters/RouteTemplate" }
+        ],
+        "responses": {
+          "200": { "description": "Policy found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PolicyRequest" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "No policy for this endpoint" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      },
+      "put": {
+        "tags": ["Policies"],
+        "summary": "Create or replace an endpoint policy",
+        "description": "Public policies have no required entitlements. Protected policies require at least one. Method is normalized to uppercase; tenant, module, route template, and entitlements are normalized to lowercase.",
+        "operationId": "upsertPolicy",
+        "security": [{ "AdminApiKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PolicyRequest" }, "examples": { "protected": { "value": { "tenantId": "default", "module": "customers", "httpMethod": "GET", "routeTemplate": "/customers/{id}", "isPublic": false, "requiredEntitlements": ["customers.view"] } }, "public": { "value": { "tenantId": "default", "module": "customers", "httpMethod": "GET", "routeTemplate": "/customers/public", "isPublic": true, "requiredEntitlements": [] } } } } } },
+        "responses": {
+          "204": { "description": "Policy saved" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      },
+      "delete": {
+        "tags": ["Policies"],
+        "summary": "Delete an endpoint policy",
+        "operationId": "deletePolicy",
+        "security": [{ "AdminApiKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PolicyKeyRequest" }, "example": { "tenantId": "default", "module": "customers", "httpMethod": "GET", "routeTemplate": "/customers/{id}" } } } },
+        "responses": {
+          "204": { "description": "Delete completed, including when the policy did not exist" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      }
+    },
+    "/v1/roles/entitlements": {
+      "get": {
+        "tags": ["Role entitlements"],
+        "summary": "Get all entitlements granted to a role",
+        "operationId": "getRoleEntitlements",
+        "security": [{ "AdminApiKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "role", "in": "query", "required": true, "schema": { "type": "string", "maxLength": 128 }, "example": "advisor" }
+        ],
+        "responses": {
+          "200": { "description": "Role grants; entitlements is empty when none are granted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RoleEntitlementsRequest" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      },
+      "put": {
+        "tags": ["Role entitlements"],
+        "summary": "Replace all entitlements granted to a role",
+        "description": "This replaces the entire grant set for one tenant and role. An empty list revokes all grants for that role.",
+        "operationId": "replaceRoleEntitlements",
+        "security": [{ "AdminApiKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RoleEntitlementsRequest" }, "example": { "tenantId": "default", "role": "advisor", "entitlements": ["customers.view"] } } } },
+        "responses": {
+          "204": { "description": "Role grants replaced" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "DecisionApiKey": { "type": "apiKey", "in": "header", "name": "X-Access-Control-Key", "description": "Use ApiKeys:DecisionKey for POST /v1/decisions." },
+      "AdminApiKey": { "type": "apiKey", "in": "header", "name": "X-Access-Control-Key", "description": "Use ApiKeys:AdminKey for policy and role administration." }
+    },
+    "parameters": {
+      "TenantId": { "name": "tenantId", "in": "query", "required": true, "schema": { "type": "string", "maxLength": 128 }, "example": "default" },
+      "Module": { "name": "module", "in": "query", "required": true, "schema": { "type": "string", "maxLength": 128 }, "example": "customers" },
+      "HttpMethod": { "name": "httpMethod", "in": "query", "required": true, "schema": { "type": "string", "maxLength": 16 }, "example": "GET" },
+      "RouteTemplate": { "name": "routeTemplate", "in": "query", "required": true, "description": "ASP.NET Core route template, not a concrete request path.", "schema": { "type": "string", "maxLength": 512 }, "example": "/customers/{id}" }
+    },
+    "schemas": {
+      "DecisionRequest": {
+        "type": "object", "required": ["roles", "module", "httpMethod", "routeTemplate", "tenantId"],
+        "properties": {
+          "subjectId": { "type": "string", "nullable": true, "description": "Authenticated user ID, or null for an anonymous request.", "example": "alice" },
+          "roles": { "type": "array", "items": { "type": "string" }, "description": "Trusted application roles from the consuming service. Use an empty list for anonymous callers." },
+          "module": { "type": "string", "example": "customers" },
+          "httpMethod": { "type": "string", "example": "GET" },
+          "routeTemplate": { "type": "string", "example": "/customers/{id}" },
+          "tenantId": { "type": "string", "example": "default" }
+        }
+      },
+      "DecisionResponse": {
+        "type": "object", "required": ["permit", "reason", "authenticationRequired"],
+        "properties": {
+          "permit": { "type": "boolean", "description": "Whether the endpoint may continue." },
+          "reason": { "type": "string", "description": "Reason for the decision." },
+          "authenticationRequired": { "type": "boolean", "description": "True when a protected endpoint received no subject ID." }
+        }
+      },
+      "PolicyKeyRequest": {
+        "type": "object", "required": ["tenantId", "module", "httpMethod", "routeTemplate"],
+        "properties": {
+          "tenantId": { "type": "string", "maxLength": 128, "example": "default" },
+          "module": { "type": "string", "maxLength": 128, "example": "customers" },
+          "httpMethod": { "type": "string", "maxLength": 16, "example": "GET" },
+          "routeTemplate": { "type": "string", "maxLength": 512, "example": "/customers/{id}" }
+        }
+      },
+      "PolicyRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/PolicyKeyRequest" },
+          { "type": "object", "required": ["isPublic", "requiredEntitlements"], "properties": {
+            "isPublic": { "type": "boolean", "description": "True allows access without a subject or role grant." },
+            "requiredEntitlements": { "type": "array", "items": { "type": "string", "maxLength": 128 }, "description": "Empty for public policies; one or more for protected policies. Any one matching grant permits access." }
+          } }
+        ]
+      },
+      "RoleEntitlementsRequest": {
+        "type": "object", "required": ["tenantId", "role", "entitlements"],
+        "properties": {
+          "tenantId": { "type": "string", "maxLength": 128, "example": "default" },
+          "role": { "type": "string", "maxLength": 128, "example": "advisor" },
+          "entitlements": { "type": "array", "items": { "type": "string", "maxLength": 128 }, "example": ["customers.view"] }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object", "properties": {
+          "type": { "type": "string", "nullable": true },
+          "title": { "type": "string", "nullable": true },
+          "status": { "type": "integer", "format": "int32", "nullable": true },
+          "detail": { "type": "string", "nullable": true },
+          "instance": { "type": "string", "nullable": true }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } } },
+      "Unauthorized": { "description": "Missing or incorrect X-Access-Control-Key" },
+      "ServiceError": { "description": "Service or database error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } } }
+    }
+  }
+}
