@@ -8,6 +8,8 @@ namespace AccessControl.Tests;
 
 public sealed class AuthorizationCacheTests
 {
+    private static readonly Guid Advisor = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private static readonly Guid Admin = Guid.Parse("22222222-2222-2222-2222-222222222222");
     [Fact]
     public async Task ConcurrentMisses_UseOneDatabaseLoadAsync()
     {
@@ -54,8 +56,8 @@ public sealed class AuthorizationCacheTests
 
         await store.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
         await store.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
-        await store.GetEntitlementsAsync("tenant", ["advisor", "admin"], CancellationToken.None);
-        await store.GetEntitlementsAsync("tenant", ["ADMIN", "Advisor"], CancellationToken.None);
+        await store.GetEntitlementsAsync("tenant", [Advisor, Admin], CancellationToken.None);
+        await store.GetEntitlementsAsync("tenant", [Admin, Advisor], CancellationToken.None);
 
         Assert.Equal(1, source.PolicyReads);
         Assert.Equal(1, source.GrantReads);
@@ -82,10 +84,10 @@ public sealed class AuthorizationCacheTests
         FakeStore source = new();
         using AuthorizationCache cache = CreateCache();
         CachingAuthorizationStore store = Wrap(source, cache);
-        await store.GetEntitlementsAsync("tenant", ["advisor"], CancellationToken.None);
+        await store.GetEntitlementsAsync("tenant", [Advisor], CancellationToken.None);
 
-        await store.ReplaceRoleEntitlementsAsync("tenant", "advisor", [], CancellationToken.None);
-        IReadOnlySet<string> updated = await store.GetEntitlementsAsync("tenant", ["advisor"], CancellationToken.None);
+        await store.ReplaceRoleEntitlementsAsync("tenant", Advisor, [], CancellationToken.None);
+        IReadOnlySet<string> updated = await store.GetEntitlementsAsync("tenant", [Advisor], CancellationToken.None);
 
         Assert.Empty(updated);
         Assert.Equal(2, source.GrantReads);
@@ -100,13 +102,13 @@ public sealed class AuthorizationCacheTests
         CachingAuthorizationStore writer = Wrap(source, first);
         CachingAuthorizationStore reader = Wrap(source, second);
         second.ObserveRevision(0);
-        await reader.GetEntitlementsAsync("tenant", ["advisor"], CancellationToken.None);
+        await reader.GetEntitlementsAsync("tenant", [Advisor], CancellationToken.None);
 
-        await writer.ReplaceRoleEntitlementsAsync("tenant", "advisor", [], CancellationToken.None);
-        Assert.Contains("customers.view", await reader.GetEntitlementsAsync("tenant", ["advisor"], CancellationToken.None));
+        await writer.ReplaceRoleEntitlementsAsync("tenant", Advisor, [], CancellationToken.None);
+        Assert.Contains("customers.view", await reader.GetEntitlementsAsync("tenant", [Advisor], CancellationToken.None));
         second.ObserveRevision(1);
 
-        Assert.Empty(await reader.GetEntitlementsAsync("tenant", ["advisor"], CancellationToken.None));
+        Assert.Empty(await reader.GetEntitlementsAsync("tenant", [Advisor], CancellationToken.None));
     }
 
     [Fact]
@@ -150,7 +152,7 @@ public sealed class AuthorizationCacheTests
             return Task.FromResult<EndpointPolicy?>(Policy.TenantId == tenantId ? Policy : null);
         }
 
-        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<string> roles,
+        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<Guid> roleIds,
             CancellationToken cancellationToken)
         {
             GrantReads++;
@@ -166,7 +168,7 @@ public sealed class AuthorizationCacheTests
         public Task DeletePolicyAsync(string tenantId, string module, string httpMethod,
             string routeTemplate, CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public Task ReplaceRoleEntitlementsAsync(string tenantId, string role, IReadOnlyList<string> entitlements,
+        public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid roleId, IReadOnlyList<string> entitlements,
             CancellationToken cancellationToken)
         {
             Grants = entitlements.ToHashSet();

@@ -5,7 +5,7 @@
     "expectedPermit": true,
     "request": {
       "subjectId": "benchmark-user",
-      "roles": ["reader"],
+      "roleIds": ["10954aa4-7532-80de-a80e-a7be3ad4c991"],
       "module": "benchmark",
       "httpMethod": "GET",
       "routeTemplate": "/benchmark/{id}",
@@ -18,7 +18,7 @@
     "expectedPermit": true,
     "request": {
       "subjectId": "benchmark-user",
-      "roles": ["revocation-reader"],
+      "roleIds": ["3113e159-4fc2-46cc-c3f5-9a467df570ce"],
       "module": "smoke",
       "httpMethod": "GET",
       "routeTemplate": "/protected/{id}",
@@ -31,7 +31,7 @@
     "expectedPermit": true,
     "request": {
       "subjectId": null,
-      "roles": [],
+      "roleIds": [],
       "module": "smoke",
       "httpMethod": "GET",
       "routeTemplate": "/public",
@@ -44,7 +44,7 @@
     "expectedPermit": true,
     "request": {
       "subjectId": "benchmark-user",
-      "roles": ["reviewer"],
+      "roleIds": ["b78650b4-c248-cab1-3d80-9a7c0dad7059"],
       "module": "integration",
       "httpMethod": "GET",
       "routeTemplate": "/integration/{id}",
@@ -57,7 +57,7 @@
     "expectedPermit": false,
     "request": {
       "subjectId": "benchmark-user",
-      "roles": ["ungranted"],
+      "roleIds": ["fff25fa8-befc-828b-24af-216687b2f01b"],
       "module": "integration",
       "httpMethod": "GET",
       "routeTemplate": "/integration/{id}",

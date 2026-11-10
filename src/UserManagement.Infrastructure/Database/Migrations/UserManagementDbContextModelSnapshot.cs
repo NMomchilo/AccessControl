@@ -22,6 +22,35 @@ namespace UserManagement.Infrastructure.Database.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("UserManagement.Infrastructure.Database.RoleEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("Roles", (string)null);
+                });
+
             modelBuilder.Entity("UserManagement.Infrastructure.Database.UserEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -48,9 +77,14 @@ namespace UserManagement.Infrastructure.Database.Migrations
                         .HasMaxLength(36)
                         .HasColumnType("nvarchar(36)");
 
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("ObjectId")
+                    b.HasIndex("TenantId", "ObjectId")
                         .IsUnique();
 
                     b.ToTable("Users", (string)null);
@@ -84,24 +118,47 @@ namespace UserManagement.Infrastructure.Database.Migrations
                     b.Property<Guid>("UserId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("Role")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uniqueidentifier");
 
-                    b.HasKey("UserId", "Role");
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("UserId", "RoleId");
+
+                    b.HasIndex("TenantId", "RoleId");
+
+                    b.HasIndex("TenantId", "UserId");
 
                     b.ToTable("UserRoles", (string)null);
                 });
 
             modelBuilder.Entity("UserManagement.Infrastructure.Database.UserRoleEntity", b =>
                 {
+                    b.HasOne("UserManagement.Infrastructure.Database.RoleEntity", "Role")
+                        .WithMany("Users")
+                        .HasForeignKey("TenantId", "RoleId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("UserManagement.Infrastructure.Database.UserEntity", "User")
                         .WithMany("Roles")
-                        .HasForeignKey("UserId")
+                        .HasForeignKey("TenantId", "UserId")
+                        .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("Role");
+
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("UserManagement.Infrastructure.Database.RoleEntity", b =>
+                {
+                    b.Navigation("Users");
                 });
 
             modelBuilder.Entity("UserManagement.Infrastructure.Database.UserEntity", b =>

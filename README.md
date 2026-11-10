@@ -1,121 +1,196 @@
-# Standalone Access Control
+# Access Control and User Management
 
-This solution also includes a standalone User Management service and reusable client NuGet package. It provisions authenticated Entra users by `oid`, assigns `reviewer` on first sign-in, caches their application roles for at most five seconds, and adds them to the current request before Access Control runs. Administrator role changes trigger revision polling across client instances; cache expiry bounds staleness if polling fails. See [User Management API and client](docs/user-management-api.md).
+This .NET 10 solution provides two services and two reusable ASP.NET Core client packages. **User Management** owns tenant-scoped users, role definitions, and user-to-role assignments. **Access Control** owns endpoint policies and entitlements granted to stable role IDs. A consuming API installs both client packages to enrich the current request and decide whether its controller may run. The solution has no Asseco dependency.
 
-.NET 10 Access Control service and reusable ASP.NET Core NuGet packages. The solution has no Asseco dependency. Endpoint permissions are stored centrally; consuming controllers need no Access Control attributes.
+The two services do **not** call each other. The consuming API connects them:
 
-## Projects
+```mermaid
+sequenceDiagram
+    actor Caller
+    participant API as Consuming API
+    participant UM as User Management service
+    participant AC as Access Control service
+    participant Controller
+    Caller->>API: HTTP request with Entra access token
+    API->>API: Validate JWT; read oid
+    alt User cache miss
+        API->>UM: POST /v1/users/resolve (oid, email, name)
+        UM-->>API: User ID, active status, roles
+    else User cache hit
+        API->>API: Read cached status and roles
+    end
+    API->>API: Add application claims to HttpContext.User
+    API->>AC: POST /v1/decisions (oid, role IDs, tenant, module, method, route)
+    AC->>AC: Compare policy entitlements with role grants
+    AC-->>API: Permit or Deny
+    alt Permit
+        API->>Controller: Continue
+        Controller-->>Caller: Endpoint response
+    else Deny
+        API-->>Caller: 401 or 403
+    end
+```
 
-- `src/AccessControl.Contracts`: request and response models.
-- `src/AccessControl.Client`: middleware NuGet package for ASP.NET Core hosts.
-- `src/AccessControl.Domain`, `Application`, `Infrastructure`: policy model, evaluator, and SQL Server persistence.
-- `src/AccessControl.Service`: decision and administration API.
-- `samples/CustomerApi`: host integration example.
+## What each component does
 
-## Run the service
+| Component | Responsibility | Data it owns or changes |
+|---|---|---|
+| `UserManagement.Service` | Finds a user by application `TenantId` and Entra `oid`; creates a first-time user with the tenant's `reviewer` role; returns active status and role IDs; exposes administrator endpoints for role definitions, assignments, and user status. | Its own SQL Server database, `UserManagementLocalDev` in local Development. It does not validate the end-user JWT; the consuming API validates it first. |
+| `UserManagement.Client` NuGet | Runs after authentication, reads the validated `oid` and application tenant, calls User Management on a cache miss, denies inactive users, and adds `user_management_id`, `user_management_tenant_id`, `access_control_role_id`, and role-code claims to `HttpContext.User`. | A bounded, per-instance cache keyed by tenant and `oid`. It changes the principal for **this request only**; it does not edit or reissue the JWT. |
+| `AccessControl.Service` | Looks up the policy for a tenant, module, HTTP method, and route template; compares required entitlements with grants for the supplied role IDs; returns Permit or Deny. Administrator endpoints manage policies and grants. | Its own SQL Server database, `AppDb` in local Development, plus a bounded, per-instance policy/grant cache. It has no user table. |
+| `AccessControl.Client` NuGet | Runs after User Management, identifies the matched endpoint, sends a decision request, and lets the controller run only on Permit. | No policy database. It reads the request principal and calls Access Control for each non-excluded matched request. |
 
-To run **User Management** locally with the SQL Server container from this repository:
+For a protected `GET /customers/{id}`, User Management returns the user's role IDs and their display codes. Access Control checks the policy in module `customers` and tenant `default`. If the policy requires `customers.view` and one of those **role IDs** has that entitlement, Access Control returns Permit. **Creating a user with `reviewer` does not itself create an Access Control grant.** A missing policy or missing grant denies the request. Two roles may share a display name and still have different IDs and grants.
+
+An anonymous request skips User Management and reaches Access Control with no subject or roles. A public endpoint still needs a central policy with `isPublic: true` and an empty entitlement list. Only explicitly configured local exclusions, such as the sample's `/health`, bypass the decision call.
+
+## Run everything locally
+
+Prerequisites: .NET 10 SDK, Docker with `docker compose`, and a trusted ASP.NET Core development HTTPS certificate. Run all commands from the repository root. Use separate terminals for the three `dotnet run` commands.
 
 ```powershell
+dotnet dev-certs https --trust
 docker compose up -d sqlserver
+docker compose ps
+```
+
+The compose file runs SQL Server 2022 on `localhost,1433` with a persistent Docker volume. Its `sa` password and the API keys in this repository are **local development examples**. If the database is still starting, wait for SQL Server to become ready before running the services.
+
+**Terminal 1 — User Management:**
+
+```powershell
 dotnet run --project src/UserManagement.Service --launch-profile http
 ```
 
-The [Development settings](src/UserManagement.Service/appsettings.Development.json) point to the Docker container, use a dedicated `UserManagementLocalDev` database, and provide separate local client and administrator keys. Development startup creates or updates that database through EF migrations. The service listens on `http://localhost:5220` and opens [Swagger UI](http://localhost:5220/swagger). Its importable [OpenAPI 3 specification](src/UserManagement.Service/wwwroot/openapi/user-management.v1.json) is served at `http://localhost:5220/openapi/user-management.v1.json`. In Swagger UI, use **Authorize** with the client key for resolve and revision, or the administrator key for user read and writes. `GET /ready` checks database connectivity. The [sample API Development settings](samples/CustomerApi/appsettings.Development.json) use the matching client key. These fixed values are only for local Development; configure production credentials and the production connection string through environment variables or a secret store. Production requires HTTPS and does not apply migrations on startup. Pack the contracts and client with:
+Open [User Management Swagger UI](http://localhost:5220/swagger). `GET http://localhost:5220/ready` checks database connectivity. In Development, startup applies EF migrations to `UserManagementLocalDev`. The local client and administrator keys are in [User Management Development settings](src/UserManagement.Service/appsettings.Development.json).
+
+**Terminal 2 — Access Control:**
+
+```powershell
+dotnet run --project src/AccessControl.Service --launch-profile https
+```
+
+Open [Access Control Swagger UI](https://localhost:7219/swagger). `GET https://localhost:7219/health` is a liveness check; it does **not** check the database. In Development, startup applies EF migrations to `AppDb`. The local connection string and decision and administrator keys are in [Access Control settings](src/AccessControl.Service/appsettings.json). If the browser does not open automatically, open the Swagger URL manually. Swagger UI and the OpenAPI files are served only in Development.
+
+**Terminal 3 — sample consuming API:** set an Entra authority and API audience that match a valid access token for this API, then start the sample.
+
+```powershell
+$env:Authentication__Authority = "https://login.microsoftonline.com/<tenant-id>/v2.0"
+$env:Authentication__Audience = "api://<api-application-id>"
+dotnet run --project samples/CustomerApi --launch-profile CustomerApi
+```
+
+Replace the placeholders with your Entra configuration. The sample listens on `https://localhost:57726` and `http://localhost:57727`. Its [base](samples/CustomerApi/appsettings.json) and [Development](samples/CustomerApi/appsettings.Development.json) settings point to the two local services and supply the matching **client** keys. To test a protected route, send a valid delegated Entra access token with `oid` and `scp`. The sample has `GET /customers/{id}` and `GET /health`.
+
+### Create a role grant, policy, and test request
+
+In [User Management Swagger UI](http://localhost:5220/swagger), authorize with its administrator key and call `POST /v1/roles` with `{ "tenantId": "default", "code": "reviewer", "displayName": "Reviewer" }`. Copy the returned `roleId`. If `reviewer` already exists (for example, after migrating an existing user), call `GET /v1/roles?tenantId=default` instead.
+
+In [Access Control Swagger UI](https://localhost:7219/swagger), authorize with `ApiKeys:AdminKey` from the local settings. Grant `customers.view` to that exact ID using `PUT /v1/roles/entitlements` (replace the sample GUID below with the value returned by User Management):
+
+```json
+{
+  "tenantId": "default",
+  "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
+  "entitlements": ["customers.view"]
+}
+```
+
+Then create the endpoint policy using `PUT /v1/policies`:
+
+```json
+{
+  "tenantId": "default",
+  "module": "customers",
+  "httpMethod": "GET",
+  "routeTemplate": "/customers/{id}",
+  "isPublic": false,
+  "requiredEntitlements": ["customers.view"]
+}
+```
+
+The key is the **route template**, not a concrete URL such as `/customers/123`. Send a valid token to the sample:
+
+```powershell
+$accessToken = "<valid-Entra-access-token>"
+Invoke-RestMethod -Uri "https://localhost:57726/customers/123" -Headers @{ Authorization = "Bearer $accessToken" }
+```
+
+On first sign-in, User Management creates the user in tenant `default` and assigns its existing `reviewer` role ID. Access Control permits the request because that ID has `customers.view`. To see Deny, remove the role grant or change the policy to require an entitlement the role does not have. A protected request without a token returns `401`.
+
+To make this route public instead, replace its policy with `"isPublic": true` and `"requiredEntitlements": []`, then call it without a token. A public policy does not require a User Management lookup for an **anonymous** request. At present, an authenticated request without a valid `oid` is stopped by User Management before public policy evaluation.
+
+Use the **client** key in User Management Swagger for `POST /v1/users/resolve` and `GET /v1/users/revision`; use its **administrator** key for user read, role replacement, and active-status changes. The two key types share one HTTP header, so clear the other Swagger authorization when switching. Access Control likewise uses a **decision** key for `POST /v1/decisions` and an **administrator** key for policies and grants.
+
+## Add both packages to another ASP.NET Core service
+
+Pack the two client packages and their referenced contracts into a local package source or publish them to a private NuGet feed:
 
 ```powershell
 dotnet pack src/UserManagement.Contracts -c Release -o artifacts/packages
 dotnet pack src/UserManagement.Client -c Release -o artifacts/packages
-dotnet add <consumer-project.csproj> package UserManagement.Client --version 0.1.0 --source artifacts/packages
-```
-
-The sample [CustomerApi](samples/CustomerApi/Program.cs) shows `UseAuthentication()` → `UseUserManagement()` → `UseAccessControl()` and sets `AccessControl:RoleClaimType` to `access_control_role` and `AccessControl:RoleIdentityAuthenticationType` to `UserManagement`. Access Control reads roles only from the User Management identity. Assign Access Control entitlements to the `reviewer` role separately; automatic user provisioning does not create role grants.
-
-For local end-to-end testing, start Access Control with its `https` launch profile (`https://localhost:7219`) and User Management with its `http` Development profile (`http://localhost:5220`). The sample points to those URLs and has matching Development API keys. Set `Authentication__Authority` and `Authentication__Audience` for your Entra application. Trust the ASP.NET Core development certificate for local HTTPS if needed (`dotnet dev-certs https --trust`).
-
-For a reproducible cache benchmark, run `dotnet run --project benchmarks/UserManagement.Benchmarks -c Release -- --requests 5000 --concurrency 16`. Results go to `artifacts/benchmarks/user-management-sqlite.json`; see [measured results](docs/benchmark-results-2026-11-09.md).
-
-Docker SQL Server and live HTTP/HTTPS benchmark results, including cache-constrained measurements, are in [the Docker benchmark report](docs/docker-sqlserver-benchmark-2026-11-09.md).
-
-The [available route and role mix benchmark](docs/available-policy-mix-benchmark-2026-11-09.md) uses the configured Docker `AppDb` policy and a separate uniform test mix; the repository has no real request-frequency data.
-
-The [end-to-end access-flow benchmark](docs/end-to-end-access-flow-benchmark-2026-11-09.md) measures a locally signed JWT through User Management, Access Control, and a controller against Docker SQL Server.
-
-## Run Access Control
-
-To run Access Control locally against the same Docker SQL Server container:
-
-```powershell
-docker compose up -d sqlserver
-dotnet run --project src/AccessControl.Service --launch-profile https
-```
-
-Development startup applies EF migrations to the configured `AppDb` database. Open `https://localhost:7219/swagger` for the interactive OpenAPI 3 documentation. The importable specification is at `src/AccessControl.Service/wwwroot/openapi/access-control.v1.json` and is served at `https://localhost:7219/openapi/access-control.v1.json`. In Swagger UI, use **Authorize** with `ApiKeys:AdminKey` for policy and role endpoints, or `ApiKeys:DecisionKey` for the decision endpoint. The Swagger UI and specification are served only in Development. For production, override the local connection string and API keys through environment variables or a secret store and apply migrations as a deployment step; startup migration is disabled outside Development.
-
-The migrations create `EndpointPolicies`, `EndpointPolicyEntitlements`, and `AuthorizationRevisions`. They retain the old `AccessPolicies` table and its data for a separate migration decision. Old resource/action rows do **not** authorize endpoints; create endpoint policies before directing traffic to the new middleware. `RoleEntitlements` remains the role grant table.
-
-The service caches endpoint policies and role grant sets in memory. Each instance holds at most 10,000 cache entries by default, and each entry expires after five seconds. Policy and grant writes clear the writer's cache immediately and increment the shared `AuthorizationRevisions` row in the same database transaction. Other instances poll that row every second and clear their caches when it changes. **Five seconds is the maximum intended revocation delay for an already cached decision input** if polling fails; an in-flight request may still finish using data it read earlier. Configure `AccessControlCache:MaximumEntries`, `EntryLifetime`, and `RevisionPollInterval` in the service. Startup validation rejects lifetimes above five seconds. Development startup applies the revision migration; apply it as a deployment step in production.
-
-## Use the NuGet package in another service
-
-Pack `AccessControl.Contracts` and `AccessControl.Client`, place both packages in a private feed or local NuGet source, then install `AccessControl.Client` in the consuming ASP.NET Core service. The client package references contracts.
-
-```powershell
 dotnet pack src/AccessControl.Contracts -c Release -o artifacts/packages
 dotnet pack src/AccessControl.Client -c Release -o artifacts/packages
-dotnet add <consumer-project.csproj> package AccessControl.Client --version 0.2.3 --source artifacts/packages
+dotnet add <consumer-project.csproj> package UserManagement.Client --version 0.2.0 --source artifacts/packages
+dotnet add <consumer-project.csproj> package AccessControl.Client --version 0.3.0 --source artifacts/packages
 ```
 
-The consuming service authenticates users as usual. Add the middleware after routing and authentication, before authorization and controllers:
-
-The middleware uses the validated JWT's `oid` claim as `subjectId`, including its URI claim type when ASP.NET Core maps inbound claims. An authenticated caller without an object ID receives HTTP 401. It reads application roles from `ClaimTypes.Role` or `role` claims on `HttpContext.User`.
+Configure JWT validation in the consuming service. Register both clients and put their middleware **after routing and authentication**, in this order:
 
 ```csharp
-builder.Services.AddAuthentication(/* existing scheme */);
+builder.Services.AddAuthentication(/* your validated JWT bearer scheme */);
 builder.Services.AddAuthorization();
+builder.Services.AddUserManagement(builder.Configuration);
 builder.Services.AddAccessControl(builder.Configuration);
 builder.Services.AddControllers();
 
 app.UseRouting();
 app.UseAuthentication();
+app.UseUserManagement();
 app.UseAccessControl();
 app.UseAuthorization();
 app.MapControllers();
-app.ExportAccessControlCatalog(); // optional: writes a catalog when configured
+app.ExportAccessControlCatalog(); // optional, when CatalogOutputPath is set
 ```
 
-Example configuration (put `ApiKey` in a secret store):
+Use the [sample configuration](samples/CustomerApi/appsettings.json) as a template. Set `AccessControl:Module` to the consuming service's module, `RoleIdClaimType` to `access_control_role_id`, and `RoleIdentityAuthenticationType` to `UserManagement`. Configure both clients with the **same** `TenantClaimType` and `DefaultTenantId`; `default` is used when that application tenant claim is absent. Set `UserManagement:RequiredDelegatedScope` to the exact delegated scope this API accepts. The Entra `tid` claim is **not** automatically the application tenant. Keep service API keys in a secret store or environment variables.
 
-```json
-{
-  "AccessControl": {
-    "ServiceUrl": "https://access-control.example/",
-    "Module": "customers",
-    "TimeoutSeconds": 5,
-    "TenantClaimType": "tenant_id",
-    "DefaultTenantId": "default",
-    "ExcludedPaths": ["/health"],
-    "CatalogOutputPath": "endpoint-catalog.json"
-  }
-}
-```
+`UserManagement.Client` enriches `HttpContext.User` on every authenticated request. Its cache can avoid a service call, but the claims are added anew on the next request. Controllers can inspect `user_management_id`, `access_control_role_id`, and the role-code claim `access_control_role`. The added identity uses the role-code claim for `User.IsInRole("reviewer")` and `[Authorize(Roles = "reviewer")]`; Access Control itself uses only role IDs. ASP.NET Core role checks consider all identities on the principal, so use a dedicated policy if controller authorization must accept only the User Management identity.
 
-The middleware uses the matched route template, such as `/customers/{id}`, and the HTTP method. It sends that endpoint identity, tenant, authenticated subject, and role claims to `POST /v1/decisions`. The service finds the endpoint policy and compares its required entitlements with grants for those roles. A Permit reaches the controller. Protected anonymous requests return `401`; missing policies and missing grants return `403`; decision service failures return `503`.
+The optional endpoint catalog writes `(module, HTTP method, route template)` entries to `AccessControl:CatalogOutputPath` at startup. Compare it with stored policies before deployment. It does **not** create policies or approve requests. A route without HTTP-method metadata is currently omitted from the catalog, although the middleware still intercepts it. `ExcludedPaths` currently excludes **all methods** on a matching route, so reserve it for tightly controlled infrastructure paths.
 
-All matched endpoints require a central policy, including public endpoints. A public policy has `isPublic: true` and no required entitlements. `ExcludedPaths` is an explicit local bypass intended for infrastructure health checks only. Unmatched routes proceed to the host's normal `404` handling.
+## Decisions, failures, and caching
 
-The optional endpoint catalog lists method and route templates so a deployment process can compare them with configured policies. Exporting does not create or approve policies. Review new catalog entries and provision their policies before deployment. See [API contract](docs/api-contract.md) and [architecture](docs/architecture.md).
+- A protected policy needs at least one required entitlement. Any one required entitlement granted to any supplied role permits the request (OR semantics). A public policy has no required entitlements. No policy means Deny.
+- User Management rejects an authenticated principal without a valid `oid` with `401`, one without the configured exact delegated `scp` scope with `403`, and an inactive user with `403`. It returns `503` to the caller if resolution fails.
+- Access Control returns `401` for an anonymous request to a protected policy, `403` for a missing policy or missing grant, and `503` from the consuming middleware when the decision service is unavailable. Its decision service receives the role and subject assertions from the consuming service.
+- The User Management client caches resolved users for at most five seconds. The Access Control service separately caches policies and role grants for at most five seconds. Administrator writes increment database revisions; instances poll for changes, and expiry is the fallback. An already cached role, policy, or grant can therefore remain effective for up to five seconds if polling fails. In-flight requests may finish with data already read.
 
-## Logs
+For production, supply distinct credentials and connection strings through a secret store, restrict access to the service APIs and databases, and apply migrations as a deployment step. Development-only startup migration is disabled outside Development. The current Access Control decision key is shared among consuming services and the decision API trusts their submitted roles, subjects, modules, and tenants; bind caller credentials to their permitted scope before using this design across mutually untrusted services.
 
-Structured logs cover API key acceptance or rejection, route identification, outbound decision timing and HTTP status, policy lookup, grant counts, decision outcome, and policy/role changes. Correlate service and consuming service logs with request trace IDs and your distributed tracing setup. API keys and subject IDs are not logged. Configure ASP.NET Core logging levels and sinks in each host; `Debug` adds per-step detail, while `Information` records decisions and changes.
+The tenant/role-ID migrations preserve existing `default` tenant user assignments and map legacy role strings to matching IDs independently in both databases. They are **one-way migrations** because a role ID cannot safely be converted back to its former name. Back up both databases before production deployment and roll out the two services and client packages together. New role assignments use IDs from User Management; Access Control does not maintain a cross-database foreign key to those roles.
 
-## Verify
+## Local troubleshooting
+
+| Symptom | Check |
+|---|---|
+| `ConnectionStrings:AccessControl is required` or a User Management connection error | Start with the documented launch profile so `ASPNETCORE_ENVIRONMENT=Development` is set. Check `ConnectionStrings:AccessControl` in Access Control settings and `ConnectionStrings:UserManagement` in User Management Development settings. Run `docker compose ps` and confirm SQL Server is available on port `1433`. |
+| SQL Server says the `sa` password is incorrect | The named Docker volume preserves an existing SQL Server installation and its original password. Changing `MSSQL_SA_PASSWORD` in the compose file does not change the password inside that existing volume. Use the existing password or deliberately reset the local database volume after backing up anything needed. |
+| API key rejected | The sample's Development client keys must match the corresponding service keys. Use the decision key for Access Control decisions and its separate admin key for policy/grant writes. Use the User Management client key for resolve/revision and its admin key for user administration. |
+| Address already in use | Another process is listening on the launch profile's port. Stop that process or change the affected profile URL and the matching `ServiceUrl` in the sample. |
+| Swagger does not open | Start a service in Development and browse directly to `http://localhost:5220/swagger` or `https://localhost:7219/swagger`. The sample Customer API does not expose Swagger. |
+| HTTPS certificate error | Run `dotnet dev-certs https --trust` and restart the browser or terminal. |
+
+To inspect the local SQL Server in SSMS, connect to `localhost,1433` using SQL Server Authentication with user `sa` and the password configured for the **existing** container volume. The local databases are `AppDb` and `UserManagementLocalDev` after their Development migrations run.
+
+## API reference, tests, and benchmarks
+
+- [User Management API and client](docs/user-management-api.md) and its [OpenAPI 3 specification](src/UserManagement.Service/wwwroot/openapi/user-management.v1.json).
+- [Access Control API contract](docs/api-contract.md), [architecture](docs/architecture.md), and [OpenAPI 3 specification](src/AccessControl.Service/wwwroot/openapi/access-control.v1.json).
+- [Benchmark instructions](benchmarks/README.md) and [new tenant/role-ID results with raw outputs](docs/tenant-role-ids-benchmark-2026-11-10.md). The [earlier route mix](docs/available-policy-mix-benchmark-2026-11-09.md) and [earlier end-to-end results](docs/end-to-end-access-flow-benchmark-2026-11-09.md) describe the previous string-role build. All use local or synthetic workloads and do not establish production capacity.
 
 ```powershell
 dotnet test AccessControl.sln -c Release
-dotnet pack src/AccessControl.Contracts -c Release -o artifacts/packages
-dotnet pack src/AccessControl.Client -c Release -o artifacts/packages
 ```
 
-For repeatable decision API load measurements, see the [benchmark harness](benchmarks/README.md) and [local results](docs/benchmark-results-2026-11-07.md).
+Structured logs include credential acceptance or rejection, user resolution, cache activity, policy lookups, grant counts, decision outcomes, and administration changes. Use request trace IDs and distributed tracing to correlate logs between a consuming API and the two services; avoid logging access tokens or API keys.

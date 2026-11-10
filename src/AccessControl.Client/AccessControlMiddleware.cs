@@ -55,19 +55,35 @@ public sealed class AccessControlMiddleware(
 
         string tenantId = (authenticated ? context.User.FindFirstValue(settings.TenantClaimType) : null)
             ?? settings.DefaultTenantId;
-        string[] roles = authenticated
+        if (authenticated && settings.RoleIdentityAuthenticationType is not null &&
+            context.User.Identities.Any(identity =>
+                identity.AuthenticationType == settings.RoleIdentityAuthenticationType &&
+                identity.HasClaim(claim => claim.Type == settings.RoleIdClaimType) &&
+                !string.Equals(identity.FindFirst("user_management_tenant_id")?.Value, tenantId.Trim(),
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            logger.LogWarning("Application role tenant does not match decision tenant; trace {TraceId}", context.TraceIdentifier);
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        string[] roleClaims = authenticated
             ? context.User.Identities
                 .Where(identity => settings.RoleIdentityAuthenticationType is null ||
                     identity.AuthenticationType == settings.RoleIdentityAuthenticationType)
                 .SelectMany(identity => identity.Claims)
-                .Where(claim => settings.RoleClaimType is { Length: > 0 }
-                    ? claim.Type == settings.RoleClaimType
-                    : claim.Type == ClaimTypes.Role || claim.Type == "role")
+                .Where(claim => claim.Type == settings.RoleIdClaimType)
                 .Select(claim => claim.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
             : [];
-        DecisionRequest request = new(subjectId, roles, settings.Module, method, route, tenantId);
+        if (roleClaims.Length > 16 || roleClaims.Any(value => !Guid.TryParse(value, out Guid id) || id == Guid.Empty))
+        {
+            logger.LogWarning("Invalid application role IDs for {Method} {Route}; trace {TraceId}", method, route, context.TraceIdentifier);
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        Guid[] roleIds = roleClaims.Select(Guid.Parse).Distinct().ToArray();
+        DecisionRequest request = new(subjectId, roleIds, settings.Module, method, route, tenantId);
         logger.LogDebug("Requesting decision for {TenantId} {Module} {Method} {Route}; authenticated {Authenticated}, roles {RoleCount}, trace {TraceId}",
-            tenantId, settings.Module, method, route, authenticated, roles.Length, context.TraceIdentifier);
+            tenantId, settings.Module, method, route, authenticated, roleIds.Length, context.TraceIdentifier);
 
         DecisionResponse decision;
         try

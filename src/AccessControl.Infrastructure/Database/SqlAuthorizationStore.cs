@@ -23,20 +23,20 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
             entity.RouteTemplate, entity.IsPublic, entity.RequiredEntitlements.Select(x => x.Entitlement).ToList());
     }
 
-    public async Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<string> roles, CancellationToken cancellationToken)
+    public async Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken)
     {
-        if (roles.Count == 0)
+        if (roleIds.Count == 0)
         {
             logger.LogDebug("No roles supplied for tenant {TenantId}", tenantId);
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
 
         List<string> values = await dbContext.RoleEntitlements.AsNoTracking()
-            .Where(x => x.TenantId == tenantId && roles.Contains(x.Role))
+            .Where(x => x.TenantId == tenantId && roleIds.Contains(x.RoleId))
             .Select(x => x.Entitlement)
             .ToListAsync(cancellationToken);
         logger.LogDebug("Loaded {EntitlementCount} entitlements for {RoleCount} roles in tenant {TenantId}",
-            values.Count, roles.Count, tenantId);
+            values.Count, roleIds.Count, tenantId);
         return values.ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
@@ -96,10 +96,10 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
             deleted, tenantId, module, httpMethod, routeTemplate);
     }
 
-    public async Task ReplaceRoleEntitlementsAsync(string tenantId, string role, IReadOnlyList<string> entitlements, CancellationToken cancellationToken)
+    public async Task ReplaceRoleEntitlementsAsync(string tenantId, Guid roleId, IReadOnlyList<string> entitlements, CancellationToken cancellationToken)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        int deleted = await dbContext.RoleEntitlements.Where(x => x.TenantId == tenantId && x.Role == role)
+        int deleted = await dbContext.RoleEntitlements.Where(x => x.TenantId == tenantId && x.RoleId == roleId)
             .ExecuteDeleteAsync(cancellationToken);
 
         foreach (string entitlement in entitlements.Distinct(StringComparer.OrdinalIgnoreCase))
@@ -107,7 +107,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
             dbContext.RoleEntitlements.Add(new RoleEntitlementEntity
             {
                 TenantId = tenantId,
-                Role = role,
+                RoleId = roleId,
                 Entitlement = entitlement
             });
         }
@@ -115,8 +115,8 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         await dbContext.SaveChangesAsync(cancellationToken);
         await IncrementRevisionAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        logger.LogInformation("Replaced role entitlements for {TenantId} {Role}: removed {RemovedCount}, stored {StoredCount}",
-            tenantId, role, deleted, entitlements.Count);
+        logger.LogInformation("Replaced role entitlements for {TenantId} {RoleId}: removed {RemovedCount}, stored {StoredCount}",
+            tenantId, roleId, deleted, entitlements.Count);
     }
 
     private async Task IncrementRevisionAsync(CancellationToken cancellationToken)

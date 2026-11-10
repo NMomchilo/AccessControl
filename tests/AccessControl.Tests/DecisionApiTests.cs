@@ -14,6 +14,7 @@ namespace AccessControl.Tests;
 
 public sealed class DecisionApiTests
 {
+    private static readonly Guid Advisor = Guid.Parse("11111111-1111-1111-1111-111111111111");
     [Fact]
     public async Task PostDecision_ValidDecisionKey_ReturnsPermitAsync()
     {
@@ -21,7 +22,7 @@ public sealed class DecisionApiTests
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage message = new(HttpMethod.Post, "/v1/decisions")
         {
-            Content = JsonContent.Create(new DecisionRequest("alice", ["advisor"], "customers", "GET", "/customers/{id}", "tenant-a"))
+            Content = JsonContent.Create(new DecisionRequest("alice", [Advisor], "customers", "GET", "/customers/{id}", "tenant-a"))
         };
         message.Headers.Add("X-Access-Control-Key", "decision-test-key");
 
@@ -39,7 +40,7 @@ public sealed class DecisionApiTests
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage message = new(HttpMethod.Post, "/v1/decisions")
         {
-            Content = JsonContent.Create(new DecisionRequest("alice", ["advisor"], "customers", "GET", "/customers/{id}", "tenant-a"))
+            Content = JsonContent.Create(new DecisionRequest("alice", [Advisor], "customers", "GET", "/customers/{id}", "tenant-a"))
         };
         message.Headers.Add("X-Access-Control-Key", "admin-test-key");
 
@@ -91,11 +92,11 @@ public sealed class DecisionApiTests
             Task.FromResult<EndpointPolicy?>(tenantId == "tenant-a" && module == "customers" && httpMethod == "GET" && routeTemplate == "/customers/{id}"
                 ? new EndpointPolicy(tenantId, module, httpMethod, routeTemplate, false, ["customers.view"]) : null);
 
-        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<string> roles, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlySet<string>>(roles.Contains("advisor") ? new HashSet<string> { "customers.view" } : new HashSet<string>());
+        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlySet<string>>(roleIds.Contains(Advisor) ? new HashSet<string> { "customers.view" } : new HashSet<string>());
 
         public Task UpsertPolicyAsync(EndpointPolicy policy, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task DeletePolicyAsync(string tenantId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken) => Task.CompletedTask;
-        public Task ReplaceRoleEntitlementsAsync(string tenantId, string role, IReadOnlyList<string> entitlements, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid roleId, IReadOnlyList<string> entitlements, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

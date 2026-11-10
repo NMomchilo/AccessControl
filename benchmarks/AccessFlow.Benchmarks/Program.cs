@@ -35,7 +35,7 @@ builder.WebHost.UseUrls("http://127.0.0.1:0");
 builder.Logging.ClearProviders();
 builder.Configuration["AccessControl:Module"] = "integration";
 builder.Configuration["AccessControl:DefaultTenantId"] = "default";
-builder.Configuration["AccessControl:RoleClaimType"] = UserManagementClaims.Role;
+builder.Configuration["AccessControl:RoleIdClaimType"] = UserManagementClaims.RoleId;
 builder.Configuration["AccessControl:RoleIdentityAuthenticationType"] = UserManagementClaims.IdentityAuthenticationType;
 builder.Configuration["UserManagement:AllowInsecureHttpForDevelopment"] = "true";
 builder.Services.AddSingleton<FlowCounters>();

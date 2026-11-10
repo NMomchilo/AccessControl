@@ -28,11 +28,10 @@ public sealed class AuthorizationCache : IDisposable
         Func<CancellationToken, Task<EndpointPolicy?>> load, CancellationToken cancellationToken) =>
         GetAsync(new PolicyKey(tenantId, module, httpMethod, routeTemplate), load, cancellationToken);
 
-    public Task<IReadOnlySet<string>> GetGrantsAsync(string tenantId, IReadOnlyList<string> roles,
+    public Task<IReadOnlySet<string>> GetGrantsAsync(string tenantId, IReadOnlyList<Guid> roleIds,
         Func<CancellationToken, Task<IReadOnlySet<string>>> load, CancellationToken cancellationToken)
     {
-        string roleKey = JsonSerializer.Serialize(roles.Select(role => role.Trim().ToLowerInvariant())
-            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+        string roleKey = JsonSerializer.Serialize(roleIds.Distinct().Order());
         return GetAsync(new GrantsKey(tenantId, roleKey), load, cancellationToken);
     }
 

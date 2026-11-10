@@ -21,13 +21,13 @@ public sealed class UserManagementStoreTests
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
 
-        UserIdentityResponse first = await service.ResolveAsync(new UserIdentityRequest(Oid, "first@example.com", "First"),
+        UserIdentityResponse first = await service.ResolveAsync(new UserIdentityRequest("default", Oid, "first@example.com", "First"),
             CancellationToken.None);
-        UserIdentityResponse second = await service.ResolveAsync(new UserIdentityRequest(Oid, "second@example.com", "Second"),
+        UserIdentityResponse second = await service.ResolveAsync(new UserIdentityRequest("default", Oid, "second@example.com", "Second"),
             CancellationToken.None);
 
         Assert.Equal(first.UserId, second.UserId);
-        Assert.Equal(["reviewer"], second.Roles);
+        Assert.Equal("reviewer", second.Roles.Single().Code);
         Assert.Single(await db.Users.ToListAsync());
         Assert.Equal("second@example.com", (await db.Users.SingleAsync()).Email);
     }
@@ -40,14 +40,16 @@ public sealed class UserManagementStoreTests
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
-        await service.ResolveAsync(new UserIdentityRequest(Oid, null, null), CancellationToken.None);
+        UserIdentityResponse reviewer = await service.ResolveAsync(new UserIdentityRequest("default", Oid, null, null), CancellationToken.None);
+        RoleInfo admin = await service.CreateRoleAsync(new CreateRoleRequest("default", "Admin", "Administrator"), CancellationToken.None);
 
-        bool found = await service.ReplaceRolesAsync(Oid,
-            new ReplaceRolesRequest(["Reviewer", "Admin"]), CancellationToken.None);
-        UserIdentityResponse? updated = await service.GetAsync(Oid, CancellationToken.None);
+        bool found = await service.ReplaceRolesAsync("default", Oid,
+            new ReplaceRolesRequest([reviewer.Roles.Single().RoleId, admin.RoleId]), CancellationToken.None);
+        UserIdentityResponse? updated = await service.GetAsync("default", Oid, CancellationToken.None);
 
         Assert.True(found);
-        Assert.Equal(["admin", "reviewer"], updated?.Roles);
+        Assert.NotNull(updated);
+        Assert.Equal(["admin", "reviewer"], updated.Roles.Select(role => role.Code).ToArray());
     }
 
     [Fact]
@@ -58,10 +60,10 @@ public sealed class UserManagementStoreTests
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
-        await service.ResolveAsync(new UserIdentityRequest(Oid, null, null), CancellationToken.None);
+        await service.ResolveAsync(new UserIdentityRequest("default", Oid, null, null), CancellationToken.None);
 
-        Assert.True(await service.SetActiveAsync(Oid, new SetActiveRequest(false), CancellationToken.None));
-        UserIdentityResponse resolved = await service.ResolveAsync(new UserIdentityRequest(Oid, null, null),
+        Assert.True(await service.SetActiveAsync("default", Oid, new SetActiveRequest(false), CancellationToken.None));
+        UserIdentityResponse resolved = await service.ResolveAsync(new UserIdentityRequest("default", Oid, null, null),
             CancellationToken.None);
 
         Assert.False(resolved.IsActive);
@@ -77,7 +79,7 @@ public sealed class UserManagementStoreTests
         UserManagementService service = CreateService(db);
 
         await Assert.ThrowsAsync<ArgumentException>(() => service.ResolveAsync(
-            new UserIdentityRequest("not-an-oid", null, null), CancellationToken.None));
+            new UserIdentityRequest("default", "not-an-oid", null, null), CancellationToken.None));
         Assert.Empty(await db.Users.ToListAsync());
     }
 

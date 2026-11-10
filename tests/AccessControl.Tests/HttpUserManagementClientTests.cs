@@ -19,11 +19,11 @@ public sealed class HttpUserManagementClientTests
                 ServiceUrl = "https://user-management.example/",
                 ApiKey = "test-client-key"
             }), NullLogger<HttpUserManagementClient>.Instance);
-        UserIdentityRequest request = new("9155ff4d-2708-4770-b87e-e238645ec5df", "user@example.com", "User");
+        UserIdentityRequest request = new("default", "9155ff4d-2708-4770-b87e-e238645ec5df", "user@example.com", "User");
 
         UserIdentityResponse response = await sut.ResolveAsync(request, CancellationToken.None);
 
-        Assert.Equal(["reviewer"], response.Roles);
+        Assert.Equal("reviewer", response.Roles.Single().Code);
         Assert.Equal(HttpMethod.Post, handler.Method);
         Assert.Equal("/v1/users/resolve", handler.Path);
         Assert.Equal(request.ObjectId, handler.ObjectId);
@@ -76,7 +76,8 @@ public sealed class HttpUserManagementClientTests
             ObjectId = body?.ObjectId;
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = JsonContent.Create(new UserIdentityResponse(Guid.NewGuid(), true, ["reviewer"]))
+                Content = JsonContent.Create(new UserIdentityResponse(Guid.NewGuid(), body!.TenantId, true,
+                    [new UserRoleInfo(Guid.Parse("22222222-2222-2222-2222-222222222222"), "reviewer", "Reviewer")]))
             };
         }
     }

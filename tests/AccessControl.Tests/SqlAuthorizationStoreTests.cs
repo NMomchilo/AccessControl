@@ -13,6 +13,7 @@ namespace AccessControl.Tests;
 
 public sealed class SqlAuthorizationStoreTests
 {
+    private static readonly Guid Advisor = Guid.Parse("11111111-1111-1111-1111-111111111111");
     [Fact]
     public async Task MutationsIncrementSharedRevisionAsync()
     {
@@ -28,7 +29,7 @@ public sealed class SqlAuthorizationStoreTests
         await store.UpsertPolicyAsync(new EndpointPolicy("tenant", "customers", "GET", "/customers/{id}",
             false, ["customers.view"]), CancellationToken.None);
         Assert.Equal(1, await store.GetRevisionAsync(CancellationToken.None));
-        await store.ReplaceRoleEntitlementsAsync("tenant", "advisor", ["customers.view"], CancellationToken.None);
+        await store.ReplaceRoleEntitlementsAsync("tenant", Advisor, ["customers.view"], CancellationToken.None);
         Assert.Equal(2, await store.GetRevisionAsync(CancellationToken.None));
         await store.DeletePolicyAsync("tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
         Assert.Equal(3, await store.GetRevisionAsync(CancellationToken.None));
@@ -102,13 +103,13 @@ public sealed class SqlAuthorizationStoreTests
         await context.Database.EnsureCreatedAsync();
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
-        DecisionRequest request = new("alice", ["advisor"], "customers", "GET", "/customers/{id}", "tenant-a");
+        DecisionRequest request = new("alice", [Advisor], "customers", "GET", "/customers/{id}", "tenant-a");
         await store.UpsertPolicyAsync(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", false, ["customers.view"]), CancellationToken.None);
-        await store.ReplaceRoleEntitlementsAsync("tenant-a", "advisor", ["customers.view"], CancellationToken.None);
+        await store.ReplaceRoleEntitlementsAsync("tenant-a", Advisor, ["customers.view"], CancellationToken.None);
 
         Assert.True((await service.DecideAsync(request, CancellationToken.None)).Permit);
 
-        await store.ReplaceRoleEntitlementsAsync("tenant-a", "advisor", [], CancellationToken.None);
+        await store.ReplaceRoleEntitlementsAsync("tenant-a", Advisor, [], CancellationToken.None);
 
         Assert.False((await service.DecideAsync(request, CancellationToken.None)).Permit);
     }

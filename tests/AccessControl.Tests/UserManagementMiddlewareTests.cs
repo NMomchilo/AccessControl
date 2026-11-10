@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using UserManagement.Client;
 using UserManagement.Contracts;
 
@@ -9,6 +10,7 @@ namespace AccessControl.Tests;
 public sealed class UserManagementMiddlewareTests
 {
     private const string Oid = "9155ff4d-2708-4770-b87e-e238645ec5df";
+    private static readonly Guid Reviewer = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
     [Fact]
     public async Task InvokeAsync_AuthenticatedUser_AddsDedicatedRoleClaimsAsync()
@@ -22,7 +24,10 @@ public sealed class UserManagementMiddlewareTests
 
         Assert.True(ran);
         Assert.Equal(Oid, client.Request?.ObjectId);
+        Assert.Equal("default", client.Request?.TenantId);
         Assert.Contains(context.User.Claims, claim => claim.Type == UserManagementClaims.Role && claim.Value == "reviewer");
+        Assert.Contains(context.User.Claims, claim => claim.Type == UserManagementClaims.RoleId && claim.Value == Reviewer.ToString("D"));
+        Assert.True(context.User.IsInRole("reviewer"));
         Assert.Contains(context.User.Claims, claim => claim.Type == UserManagementClaims.UserId);
     }
 
@@ -118,8 +123,24 @@ public sealed class UserManagementMiddlewareTests
         Assert.Null(client.Request);
     }
 
+    [Fact]
+    public async Task InvokeAsync_UnrelatedDelegatedScope_DoesNotProvisionUserAsync()
+    {
+        CapturingClient client = new();
+        UserManagementMiddleware sut = Create(client);
+        DefaultHttpContext context = new();
+        context.User = new ClaimsPrincipal(new ClaimsIdentity([
+            new Claim("oid", Oid), new Claim("scp", "other_scope")], "jwt"));
+
+        await sut.InvokeAsync(context);
+
+        Assert.Equal(403, context.Response.StatusCode);
+        Assert.Null(client.Request);
+    }
+
     private static UserManagementMiddleware Create(IUserManagementClient client, RequestDelegate? next = null) =>
-        new(next ?? (_ => Task.CompletedTask), client, NullLogger<UserManagementMiddleware>.Instance);
+        new(next ?? (_ => Task.CompletedTask), client, Options.Create(new UserManagementClientOptions()),
+            NullLogger<UserManagementMiddleware>.Instance);
 
     private static DefaultHttpContext AuthenticatedContext(Claim claim)
     {
@@ -135,7 +156,8 @@ public sealed class UserManagementMiddlewareTests
         public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request, CancellationToken cancellationToken)
         {
             Request = request;
-            return Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), active, ["reviewer"]));
+            return Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), request.TenantId, active,
+                [new UserRoleInfo(Reviewer, "reviewer", "Reviewer")]));
         }
     }
 

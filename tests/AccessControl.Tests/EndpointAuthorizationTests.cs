@@ -7,6 +7,7 @@ namespace AccessControl.Tests;
 
 public sealed class EndpointAuthorizationTests
 {
+    private static readonly Guid Advisor = Guid.Parse("11111111-1111-1111-1111-111111111111");
     [Fact]
     public async Task DecideAsync_RoleHasEndpointEntitlement_PermitsAsync()
     {
@@ -15,7 +16,7 @@ public sealed class EndpointAuthorizationTests
         AuthorizationService sut = new(store, NullLogger<AuthorizationService>.Instance);
 
         DecisionResponse result = await sut.DecideAsync(
-            new DecisionRequest("alice", ["advisor"], "customers", "GET", "/customers/{id}", "tenant-a"),
+            new DecisionRequest("alice", [Advisor], "customers", "GET", "/customers/{id}", "tenant-a"),
             CancellationToken.None);
 
         Assert.True(result.Permit);
@@ -55,7 +56,7 @@ public sealed class EndpointAuthorizationTests
         AuthorizationService sut = new(new FakeEndpointStore(null), NullLogger<AuthorizationService>.Instance);
 
         DecisionResponse result = await sut.DecideAsync(
-            new DecisionRequest("alice", ["advisor"], "customers", "GET", "/new-route", "tenant-a"),
+            new DecisionRequest("alice", [Advisor], "customers", "GET", "/new-route", "tenant-a"),
             CancellationToken.None);
 
         Assert.False(result.Permit);
@@ -69,11 +70,11 @@ public sealed class EndpointAuthorizationTests
             Task.FromResult(policy is not null && policy.TenantId == tenantId && policy.Module == module &&
                 policy.HttpMethod == httpMethod && policy.RouteTemplate == routeTemplate ? policy : null);
 
-        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<string> roles, CancellationToken cancellationToken) =>
+        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlySet<string>>(Entitlements);
 
         public Task UpsertPolicyAsync(EndpointPolicy endpointPolicy, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task DeletePolicyAsync(string tenantId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken) => Task.CompletedTask;
-        public Task ReplaceRoleEntitlementsAsync(string tenantId, string role, IReadOnlyList<string> entitlements, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid roleId, IReadOnlyList<string> entitlements, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

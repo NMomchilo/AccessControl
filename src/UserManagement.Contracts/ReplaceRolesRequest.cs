@@ -1,3 +1,3 @@
 namespace UserManagement.Contracts;
 
-public sealed record ReplaceRolesRequest(IReadOnlyList<string> Roles);
+public sealed record ReplaceRolesRequest(IReadOnlyList<Guid> RoleIds);

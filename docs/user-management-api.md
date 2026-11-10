@@ -1,8 +1,8 @@
 # User Management API and client
 
-The consuming service validates the Entra access token first. `UserManagement.Client` then reads the validated `oid` claim (or its ASP.NET Core mapped form) and requires a delegated `scp` claim. It does not edit or reissue the JWT. The service's SQL Server database stores user profiles and role assignments; Access Control's database continues to store role entitlements and endpoint policies.
+The consuming service validates the Entra access token first. `UserManagement.Client` reads the validated `oid`, the configured application tenant claim (default `default`), and the configured exact delegated `scp` scope. It does not edit or reissue the JWT. User Management stores tenant-scoped profiles, role definitions with stable GUID IDs, and user-role assignments. Access Control stores endpoint policies and entitlements granted to those IDs.
 
-The first successful resolution for an `oid` creates a user with the `reviewer` role. The user is matched only by `oid`, never by email. Email and display name are optional profile fields and may be updated on later resolution. An inactive user is denied before Access Control runs. `oid` is unique for the current single Entra tenant; supporting multiple issuers will require an issuer or `tid` component in the identity key.
+The first successful resolution for `(TenantId, oid)` creates a user with that tenant's `reviewer` role ID. The user is never matched by email. Email and display name are optional profile fields and may be updated on later resolution. An inactive user is denied before Access Control runs. The application `TenantId` is separate from Entra `tid`; if multiple Entra issuers can enter the same application tenant, include issuer or Entra `tid` in the external identity key before enabling that scenario.
 
 The User Management service trusts the `oid` asserted by a caller holding a client credential; it does not validate the end-user JWT itself. Keep client credentials in a secret store, give each consuming service its own credential, and restrict network access to the service. Before treating this boundary as production hardened, replace API keys with authenticated workload identities bound to each service or validate a delegated user token at the User Management service. The automatically assigned `reviewer` role has only the access granted to that role in Access Control.
 
@@ -16,25 +16,27 @@ Every request except `GET /health` and `GET /ready` requires `X-User-Management-
 |---|---|---|
 | `POST /v1/users/resolve` | Client | Find or create a user; return active status and roles |
 | `GET /v1/users/revision` | Client | Read the shared role and status revision for cache invalidation |
-| `GET /v1/users/{objectId}` | Administrator | Read user status and roles; `404` if unknown |
-| `PUT /v1/users/{objectId}/roles` | Administrator | Replace the complete role set; `[]` removes all roles |
-| `PUT /v1/users/{objectId}/active` | Administrator | Enable or disable the user |
+| `GET /v1/users/{objectId}?tenantId=default` | Administrator | Read user status and role IDs; `404` if unknown |
+| `PUT /v1/users/{objectId}/roles?tenantId=default` | Administrator | Replace the complete role-ID set; `[]` removes all roles |
+| `PUT /v1/users/{objectId}/active?tenantId=default` | Administrator | Enable or disable the user |
+| `GET /v1/roles?tenantId=default` | Administrator | List role definitions and IDs for a tenant |
+| `POST /v1/roles` | Administrator | Create a role with a tenant-unique code and generated GUID ID |
 | `GET /health` | None | Liveness only |
 | `GET /ready` | None | SQL Server connectivity |
 
 Resolution request:
 
 ```json
-{ "objectId": "9155ff4d-2708-4770-b87e-e238645ec5df", "email": "user@example.com", "displayName": "Example User" }
+{ "tenantId": "default", "objectId": "9155ff4d-2708-4770-b87e-e238645ec5df", "email": "user@example.com", "displayName": "Example User" }
 ```
 
 Resolution response:
 
 ```json
-{ "userId": "70f515ab-3c8d-42ab-92a3-3a06f1f9d938", "isActive": true, "roles": ["reviewer"] }
+{ "userId": "70f515ab-3c8d-42ab-92a3-3a06f1f9d938", "tenantId": "default", "isActive": true, "roles": [{ "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059", "code": "reviewer", "displayName": "Reviewer" }] }
 ```
 
-Role replacement body: `{ "roles": ["reviewer", "manager"] }`. Active status body: `{ "isActive": false }`. Invalid requests return `400`, missing or wrong credentials return `401`, unknown administrative targets return `404`, and unexpected database failures return `500`.
+Create a role with `{ "tenantId": "default", "code": "manager", "displayName": "Manager" }`, then assign the returned ID with `{ "roleIds": ["<role-guid>"] }`. Display names may repeat; codes are unique within a tenant. Role replacement rejects IDs from another tenant. Active status body: `{ "isActive": false }`. Invalid requests return `400`, missing or wrong credentials return `401`, unknown administrative targets return `404`, and unexpected database failures return `500`.
 
 ## Consuming service order
 
@@ -51,7 +53,7 @@ app.UseAuthorization();
 app.MapControllers();
 ```
 
-The Access Control client must be configured with `AccessControl:RoleClaimType` set to `access_control_role` and `AccessControl:RoleIdentityAuthenticationType` set to `UserManagement`. This makes Access Control use only roles returned by User Management. `UserManagement.Client` adds `access_control_role` and `user_management_id` to a dedicated identity on `HttpContext.User` for the current request.
+The Access Control client must set `AccessControl:RoleIdClaimType` to `access_control_role_id` and `AccessControl:RoleIdentityAuthenticationType` to `UserManagement`. Both clients must share the application tenant claim type and default tenant. `UserManagement.Client` adds role IDs, role codes, tenant ID, and internal user ID to a dedicated identity on `HttpContext.User` for the current request. ASP.NET Core controller role checks can use role codes; Access Control decisions use IDs.
 
 User Management returns `401` for an authenticated principal without a valid `oid`, `403` for an app-only principal without `scp` or an inactive user, and `503` if the service cannot be reached. Anonymous requests pass through to Access Control, which handles public policies.
 

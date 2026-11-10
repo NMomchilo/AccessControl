@@ -8,7 +8,7 @@ public sealed class AccessControlClientOptions
     public string Module { get; set; } = string.Empty;
     public string TenantClaimType { get; set; } = "tenant_id";
     public string DefaultTenantId { get; set; } = "default";
-    public string? RoleClaimType { get; set; }
+    public string RoleIdClaimType { get; set; } = "access_control_role_id";
     public string? RoleIdentityAuthenticationType { get; set; }
     public int TimeoutSeconds { get; set; } = 5;
     public string[] ExcludedPaths { get; set; } = [];

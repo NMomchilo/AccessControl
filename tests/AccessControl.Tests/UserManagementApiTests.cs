@@ -34,20 +34,28 @@ public sealed class UserManagementApiTests
         using HttpResponseMessage resolvedResponse = await client.SendAsync(resolve);
         UserIdentityResponse? first = await resolvedResponse.Content.ReadFromJsonAsync<UserIdentityResponse>();
         Assert.Equal(HttpStatusCode.OK, resolvedResponse.StatusCode);
-        Assert.Equal(["reviewer"], first?.Roles);
+        Assert.Equal("reviewer", first?.Roles.Single().Code);
+        using HttpRequestMessage createRole = new(HttpMethod.Post, "/v1/roles")
+        {
+            Content = JsonContent.Create(new CreateRoleRequest("default", "admin", "Administrator"))
+        };
+        createRole.Headers.Add("X-User-Management-Key", AdminKey);
+        using HttpResponseMessage createdRole = await client.SendAsync(createRole);
+        RoleInfo? admin = await createdRole.Content.ReadFromJsonAsync<RoleInfo>();
+        Assert.Equal(HttpStatusCode.Created, createdRole.StatusCode);
         long revisionBefore = await ReadRevisionAsync(client);
 
-        using HttpRequestMessage blockedWrite = new(HttpMethod.Put, $"/v1/users/{Oid}/roles")
+        using HttpRequestMessage blockedWrite = new(HttpMethod.Put, $"/v1/users/{Oid}/roles?tenantId=default")
         {
-            Content = JsonContent.Create(new ReplaceRolesRequest(["admin"]))
+            Content = JsonContent.Create(new ReplaceRolesRequest([admin!.RoleId]))
         };
         blockedWrite.Headers.Add("X-User-Management-Key", ClientKey);
         using HttpResponseMessage blockedResponse = await client.SendAsync(blockedWrite);
         Assert.Equal(HttpStatusCode.Unauthorized, blockedResponse.StatusCode);
 
-        using HttpRequestMessage adminWrite = new(HttpMethod.Put, $"/v1/users/{Oid}/roles")
+        using HttpRequestMessage adminWrite = new(HttpMethod.Put, $"/v1/users/{Oid}/roles?tenantId=default")
         {
-            Content = JsonContent.Create(new ReplaceRolesRequest(["admin"]))
+            Content = JsonContent.Create(new ReplaceRolesRequest([admin!.RoleId]))
         };
         adminWrite.Headers.Add("X-User-Management-Key", AdminKey);
         using HttpResponseMessage written = await client.SendAsync(adminWrite);
@@ -57,14 +65,15 @@ public sealed class UserManagementApiTests
         using HttpRequestMessage second = ResolveRequest(ClientKey);
         using HttpResponseMessage secondResponse = await client.SendAsync(second);
         UserIdentityResponse? updated = await secondResponse.Content.ReadFromJsonAsync<UserIdentityResponse>();
-        Assert.Equal(["admin"], updated?.Roles);
+        Assert.NotNull(updated);
+        Assert.Equal([admin!.RoleId], updated.Roles.Select(role => role.RoleId).ToArray());
     }
 
     private static HttpRequestMessage ResolveRequest(string key)
     {
         HttpRequestMessage request = new(HttpMethod.Post, "/v1/users/resolve")
         {
-            Content = JsonContent.Create(new UserIdentityRequest(Oid, "user@example.com", "Example User"))
+            Content = JsonContent.Create(new UserIdentityRequest("default", Oid, "user@example.com", "Example User"))
         };
         request.Headers.Add("X-User-Management-Key", key);
         return request;

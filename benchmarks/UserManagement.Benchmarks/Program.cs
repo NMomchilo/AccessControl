@@ -11,7 +11,7 @@ using UserManagement.Contracts;
 using UserManagement.Infrastructure.Database;
 
 const string oid = "9155ff4d-2708-4770-b87e-e238645ec5df";
-UserIdentityRequest request = new(oid, "benchmark@example.com", "Benchmark User");
+UserIdentityRequest request = new("default", oid, "benchmark@example.com", "Benchmark User");
 int count = 5000;
 int concurrency = 16;
 string database = "sqlite";
@@ -87,7 +87,7 @@ else
         }
 
         SqlUserStore store = new(db, NullLogger<SqlUserStore>.Instance);
-        await store.ResolveAsync(request.ObjectId, request.Email, request.DisplayName, CancellationToken.None);
+        await store.ResolveAsync(request.TenantId, request.ObjectId, request.Email, request.DisplayName, CancellationToken.None);
     }
 
     source = new StoreClient(dbOptions);
@@ -137,7 +137,7 @@ static async Task<BenchmarkResult> MeasureAsync(string scenario, IUserManagement
 
             long started = Stopwatch.GetTimestamp();
             UserIdentityResponse response = await client.ResolveAsync(request, CancellationToken.None);
-            if (!response.IsActive || !response.Roles.Contains("reviewer"))
+            if (!response.IsActive || !response.Roles.Any(role => role.Code == "reviewer" && role.RoleId != Guid.Empty))
             {
                 throw new InvalidOperationException("Benchmark user resolution failed.");
             }
@@ -169,9 +169,10 @@ internal sealed class StoreClient(DbContextOptions<UserManagementDbContext> opti
         Interlocked.Increment(ref _calls);
         await using UserManagementDbContext db = new(options);
         SqlUserStore store = new(db, NullLogger<SqlUserStore>.Instance);
-        UserManagement.Domain.ManagedUser user = await store.ResolveAsync(request.ObjectId,
+        UserManagement.Domain.ManagedUser user = await store.ResolveAsync(request.TenantId, request.ObjectId,
             request.Email, request.DisplayName, cancellationToken);
-        return new UserIdentityResponse(user.Id, user.IsActive, user.Roles);
+        return new UserIdentityResponse(user.Id, user.TenantId, user.IsActive,
+            user.Roles.Select(role => new UserRoleInfo(role.Id, role.Code, role.DisplayName)).ToArray());
     }
 }
 

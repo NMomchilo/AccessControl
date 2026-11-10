@@ -17,7 +17,7 @@ public sealed class UserResolutionCache(IUserManagementClient source,
     public async Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request,
         CancellationToken cancellationToken)
     {
-        string key = request.ObjectId;
+        string key = $"{request.TenantId.Trim().ToLowerInvariant()}|{request.ObjectId}";
         if (TryGet(key, out UserIdentityResponse? cached))
         {
             logger.LogDebug("User role cache hit");

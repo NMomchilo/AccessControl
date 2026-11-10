@@ -1,0 +1,23 @@
+{
+  "TimestampUtc": "2026-11-10T12:42:22.9961948+00:00",
+  "Runtime": ".NET 10.0.10",
+  "Os": "Microsoft Windows 10.0.22631",
+  "Requests": 500,
+  "Concurrency": 8,
+  "Results": [
+    {
+      "Scenario": "sqlite lookup per request",
+      "RequestsPerSecond": 601.2493721453432,
+      "P50Ms": 1.1443,
+      "P95Ms": 2.1196,
+      "SourceCalls": 500
+    },
+    {
+      "Scenario": "bounded 5-second cache",
+      "RequestsPerSecond": 655050.4388837941,
+      "P50Ms": 0.0008,
+      "P95Ms": 0.001,
+      "SourceCalls": 0
+    }
+  ]
+}

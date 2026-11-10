@@ -29,9 +29,9 @@ public sealed class AccessControlDbContext(DbContextOptions<AccessControlDbConte
             entity.ToTable("RoleEntitlements");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.TenantId).HasMaxLength(128).IsRequired();
-            entity.Property(x => x.Role).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.RoleId).IsRequired();
             entity.Property(x => x.Entitlement).HasMaxLength(128).IsRequired();
-            entity.HasIndex(x => new { x.TenantId, x.Role, x.Entitlement }).IsUnique();
+            entity.HasIndex(x => new { x.TenantId, x.RoleId, x.Entitlement }).IsUnique();
         });
 
         modelBuilder.Entity<EndpointPolicyEntity>(entity =>

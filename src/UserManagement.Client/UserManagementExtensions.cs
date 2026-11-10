@@ -12,7 +12,12 @@ public static class UserManagementExtensions
         services.AddSingleton<IValidateOptions<UserManagementClientOptions>, UserManagementClientOptionsValidator>();
         services.AddOptions<UserManagementClientOptions>()
             .Bind(configuration.GetSection(UserManagementClientOptions.SectionName))
-            .Validate(options => !string.IsNullOrWhiteSpace(options.ApiKey) && options.TimeoutSeconds > 0 &&
+            .Validate(options => !string.IsNullOrWhiteSpace(options.ApiKey) &&
+                !string.IsNullOrWhiteSpace(options.TenantClaimType) &&
+                !string.IsNullOrWhiteSpace(options.DefaultTenantId) &&
+                options.DefaultTenantId.Length <= 128 &&
+                !string.IsNullOrWhiteSpace(options.RequiredDelegatedScope) &&
+                !options.RequiredDelegatedScope.Contains(' ') && options.TimeoutSeconds > 0 &&
                 options.MaximumCachedUsers > 0 && options.CacheLifetime > TimeSpan.Zero &&
                 options.CacheLifetime <= TimeSpan.FromSeconds(5) &&
                 options.RevisionPollInterval > TimeSpan.Zero &&

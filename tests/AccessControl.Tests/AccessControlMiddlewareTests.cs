@@ -11,6 +11,8 @@ namespace AccessControl.Tests;
 
 public sealed class AccessControlMiddlewareTests
 {
+    private static readonly Guid Advisor = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private static readonly Guid Reviewer = Guid.Parse("22222222-2222-2222-2222-222222222222");
     [Theory]
     [InlineData(true, false, 200, true)]
     [InlineData(false, false, 403, false)]
@@ -39,7 +41,7 @@ public sealed class AccessControlMiddlewareTests
         await sut.InvokeAsync(context);
 
         Assert.Null(client.Request?.SubjectId);
-        Assert.Empty(client.Request?.Roles ?? []);
+        Assert.Empty(client.Request?.RoleIds ?? []);
         Assert.Equal("GET", client.Request?.HttpMethod);
         Assert.Equal("/customers/{id}", client.Request?.RouteTemplate);
     }
@@ -57,7 +59,7 @@ public sealed class AccessControlMiddlewareTests
         Assert.Equal("alice", client.Request?.SubjectId);
         Assert.Equal("tenant-a", client.Request?.TenantId);
         Assert.Equal("customers", client.Request?.Module);
-        Assert.Contains("advisor", client.Request?.Roles ?? []);
+        Assert.Contains(Advisor, client.Request?.RoleIds ?? []);
     }
 
     [Fact]
@@ -65,14 +67,36 @@ public sealed class AccessControlMiddlewareTests
     {
         CapturingDecisionClient client = new();
         AccessControlMiddleware sut = new(_ => Task.CompletedTask, client,
-            Options.Create(new AccessControlClientOptions { Module = "customers", RoleClaimType = "access_control_role" }),
+            Options.Create(new AccessControlClientOptions { Module = "customers", RoleIdClaimType = "access_control_role_id",
+                RoleIdentityAuthenticationType = "UserManagement" }),
             NullLogger<AccessControlMiddleware>.Instance);
         DefaultHttpContext context = CreateContext();
-        context.User.AddIdentity(new ClaimsIdentity([new Claim("access_control_role", "reviewer")]));
+        context.User.AddIdentity(new ClaimsIdentity([new Claim("access_control_role_id", Reviewer.ToString("D")),
+            new Claim("user_management_tenant_id", "default")], "UserManagement"));
 
         await sut.InvokeAsync(context);
 
-        Assert.Equal(["reviewer"], client.Request?.Roles);
+        Assert.Equal([Reviewer], client.Request?.RoleIds);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_ManagedRolesFromAnotherTenant_DeniesBeforeDecisionAsync()
+    {
+        CapturingDecisionClient client = new();
+        AccessControlMiddleware sut = new(_ => Task.CompletedTask, client,
+            Options.Create(new AccessControlClientOptions
+            {
+                Module = "customers", RoleIdentityAuthenticationType = "UserManagement"
+            }), NullLogger<AccessControlMiddleware>.Instance);
+        DefaultHttpContext context = CreateContext();
+        context.User.AddIdentity(new ClaimsIdentity([
+            new Claim("access_control_role_id", Reviewer.ToString("D")),
+            new Claim("user_management_tenant_id", "another-tenant")], "UserManagement"));
+
+        await sut.InvokeAsync(context);
+
+        Assert.Equal(403, context.Response.StatusCode);
+        Assert.Null(client.Request);
     }
 
     [Fact]
@@ -155,7 +179,8 @@ public sealed class AccessControlMiddlewareTests
         context.Request.Method = "GET";
         context.User = new ClaimsPrincipal(new ClaimsIdentity(
             [new Claim("oid", "alice"), new Claim(ClaimTypes.NameIdentifier, "other-id"),
-                new Claim("sub", "other-sub"), new Claim(ClaimTypes.Role, "advisor")], "test"));
+                new Claim("sub", "other-sub"), new Claim(ClaimTypes.Role, "advisor"),
+                new Claim("access_control_role_id", Advisor.ToString("D"))], "test"));
         context.SetEndpoint(new RouteEndpointBuilder(_ => Task.CompletedTask, RoutePatternFactory.Parse(route), 0).Build());
         return context;
     }

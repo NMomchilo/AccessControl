@@ -2,7 +2,7 @@ namespace AccessControl.Contracts;
 
 public sealed record DecisionRequest(
     string? SubjectId,
-    IReadOnlyList<string> Roles,
+    IReadOnlyList<Guid> RoleIds,
     string Module,
     string HttpMethod,
     string RouteTemplate,

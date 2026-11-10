@@ -1,0 +1,84 @@
+{
+  "TimestampUtc": "2026-11-10T12:44:05.5601941+00:00",
+  "Runtime": ".NET 10.0.10",
+  "Os": "Microsoft Windows 10.0.22631",
+  "ProcessorCount": 20,
+  "Authentication": "Locally signed RS256 JWT, validated on every request",
+  "Settings": {
+    "Requests": 200,
+    "Concurrency": [
+      1,
+      8
+    ],
+    "UserCount": 10,
+    "NewUsers": 20,
+    "Output": "artifacts/benchmarks/access-flow-role-ids-sqlserver.json"
+  },
+  "Results": [
+    {
+      "Scenario": "one warm user",
+      "Concurrency": 1,
+      "Requests": 200,
+      "RequestsPerSecond": 1033.0509144308432,
+      "P50Ms": 0.934,
+      "P95Ms": 1.2077,
+      "P99Ms": 1.3298,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 200,
+      "ControllerCalls": 200
+    },
+    {
+      "Scenario": "10 existing users",
+      "Concurrency": 1,
+      "Requests": 200,
+      "RequestsPerSecond": 871.2345786034372,
+      "P50Ms": 1.1302,
+      "P95Ms": 1.4559,
+      "P99Ms": 1.654,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 200,
+      "ControllerCalls": 200
+    },
+    {
+      "Scenario": "one warm user",
+      "Concurrency": 8,
+      "Requests": 200,
+      "RequestsPerSecond": 4749.826631327956,
+      "P50Ms": 1.259,
+      "P95Ms": 3.6216,
+      "P99Ms": 7.3644,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 200,
+      "ControllerCalls": 200
+    },
+    {
+      "Scenario": "10 existing users",
+      "Concurrency": 8,
+      "Requests": 200,
+      "RequestsPerSecond": 6256.88257082791,
+      "P50Ms": 1.211,
+      "P95Ms": 1.4601,
+      "P99Ms": 2.513,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 200,
+      "ControllerCalls": 200
+    },
+    {
+      "Scenario": "new user per request",
+      "Concurrency": 8,
+      "Requests": 20,
+      "RequestsPerSecond": 314.4654088050314,
+      "P50Ms": 21.3706,
+      "P95Ms": 41.5134,
+      "P99Ms": 41.6139,
+      "UserResolutions": 20,
+      "RevisionPolls": 0,
+      "AccessDecisions": 20,
+      "ControllerCalls": 20
+    }
+  ]
+}

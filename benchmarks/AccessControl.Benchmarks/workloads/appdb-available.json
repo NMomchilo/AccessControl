@@ -5,7 +5,7 @@
     "expectedPermit": true,
     "request": {
       "subjectId": "benchmark-user",
-      "roles": ["advisor"],
+      "roleIds": ["c4227c8a-16ef-eb3c-aedb-8197bf7f39c2"],
       "module": "customers",
       "httpMethod": "GET",
       "routeTemplate": "/customers/{id}",

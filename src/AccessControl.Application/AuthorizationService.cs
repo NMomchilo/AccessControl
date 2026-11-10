@@ -16,13 +16,13 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
             policy.RouteTemplate, policy.IsPublic, policy.RequiredEntitlements);
     }
 
-    public async Task<RoleEntitlementsRequest> GetRoleEntitlementsAsync(string tenantId, string role, CancellationToken cancellationToken)
+    public async Task<RoleEntitlementsRequest> GetRoleEntitlementsAsync(string tenantId, Guid roleId, CancellationToken cancellationToken)
     {
         string normalizedTenant = NormalizeName(tenantId, nameof(tenantId));
-        string normalizedRole = NormalizeName(role, nameof(role));
-        IReadOnlySet<string> entitlements = await store.GetEntitlementsAsync(normalizedTenant, [normalizedRole], cancellationToken);
-        logger.LogDebug("Read {Count} entitlements for role {Role} in tenant {TenantId}", entitlements.Count, normalizedRole, normalizedTenant);
-        return new RoleEntitlementsRequest(normalizedTenant, normalizedRole, entitlements.Order(StringComparer.Ordinal).ToList());
+        if (roleId == Guid.Empty) throw new ArgumentException("Role ID is required.", nameof(roleId));
+        IReadOnlySet<string> entitlements = await store.GetEntitlementsAsync(normalizedTenant, [roleId], cancellationToken);
+        logger.LogDebug("Read {Count} entitlements for role {RoleId} in tenant {TenantId}", entitlements.Count, roleId, normalizedTenant);
+        return new RoleEntitlementsRequest(normalizedTenant, roleId, entitlements.Order(StringComparer.Ordinal).ToList());
     }
 
     public async Task<DecisionResponse> DecideAsync(DecisionRequest request, CancellationToken cancellationToken)
@@ -30,7 +30,8 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
         ArgumentNullException.ThrowIfNull(request);
 
         if (string.IsNullOrWhiteSpace(request.TenantId) || string.IsNullOrWhiteSpace(request.Module) ||
-            string.IsNullOrWhiteSpace(request.HttpMethod) || string.IsNullOrWhiteSpace(request.RouteTemplate) || request.Roles is null)
+            string.IsNullOrWhiteSpace(request.HttpMethod) || string.IsNullOrWhiteSpace(request.RouteTemplate) ||
+            request.RoleIds is null || request.RoleIds.Count > 16 || request.RoleIds.Any(id => id == Guid.Empty))
         {
             logger.LogWarning("Rejected invalid decision request");
             return new DecisionResponse(false, "Invalid authorization request");
@@ -49,7 +50,7 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
         }
 
         logger.LogDebug("Evaluating endpoint {TenantId} {Module} {HttpMethod} {RouteTemplate} with {RoleCount} roles",
-            key.TenantId, key.Module, key.HttpMethod, key.RouteTemplate, request.Roles.Count);
+            key.TenantId, key.Module, key.HttpMethod, key.RouteTemplate, request.RoleIds.Count);
         EndpointPolicy? policy = await store.GetPolicyAsync(key.TenantId, key.Module, key.HttpMethod, key.RouteTemplate, cancellationToken);
 
         if (policy is null)
@@ -73,13 +74,12 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
             return new DecisionResponse(false, "Authentication required", true);
         }
 
-        string[] roles = request.Roles.Where(role => !string.IsNullOrWhiteSpace(role))
-            .Select(role => role.Trim().ToLowerInvariant()).Distinct(StringComparer.Ordinal).ToArray();
-        IReadOnlySet<string> entitlements = await store.GetEntitlementsAsync(key.TenantId, roles, cancellationToken);
+        Guid[] roleIds = request.RoleIds.Distinct().ToArray();
+        IReadOnlySet<string> entitlements = await store.GetEntitlementsAsync(key.TenantId, roleIds, cancellationToken);
         bool permit = policy.RequiredEntitlements.Any(entitlements.Contains);
         logger.LogInformation("Endpoint decision {Decision} for {TenantId} {Module} {HttpMethod} {RouteTemplate}; {RoleCount} roles, {GrantCount} grants",
             permit ? "Permit" : "Deny", key.TenantId, key.Module, key.HttpMethod, key.RouteTemplate,
-            roles.Length, entitlements.Count);
+            roleIds.Length, entitlements.Count);
         return new DecisionResponse(permit, permit ? "Permit" : "Required entitlement missing");
     }
 
@@ -115,12 +115,13 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
     {
         ArgumentNullException.ThrowIfNull(request);
         string tenantId = NormalizeName(request.TenantId, nameof(request.TenantId));
-        string role = NormalizeName(request.Role, nameof(request.Role));
+        Guid roleId = request.RoleId != Guid.Empty ? request.RoleId :
+            throw new ArgumentException("Role ID is required.", nameof(request));
         IReadOnlyList<string> values = request.Entitlements ?? throw new ArgumentException("Entitlements are required.", nameof(request));
         string[] entitlements = values.Select(value => NormalizeName(value, "entitlement"))
             .Distinct(StringComparer.Ordinal).ToArray();
-        await store.ReplaceRoleEntitlementsAsync(tenantId, role, entitlements, cancellationToken);
-        logger.LogInformation("Replaced entitlements for role {Role} in tenant {TenantId}; count {Count}", role, tenantId, entitlements.Length);
+        await store.ReplaceRoleEntitlementsAsync(tenantId, roleId, entitlements, cancellationToken);
+        logger.LogInformation("Replaced entitlements for role {RoleId} in tenant {TenantId}; count {Count}", roleId, tenantId, entitlements.Length);
     }
 
     private static PolicyKeyRequest NormalizeKey(PolicyKeyRequest request)

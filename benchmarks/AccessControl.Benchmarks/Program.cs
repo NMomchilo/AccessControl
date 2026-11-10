@@ -23,7 +23,8 @@ namespace AccessControl.Benchmarks;
 internal static class Program
 {
     private const string DecisionKey = "local-benchmark-decision-key";
-    private static readonly DecisionRequest Request = new("benchmark-user", ["reader"], "benchmark",
+    private static readonly Guid Reader = Guid.Parse("10954aa4-7532-80de-a80e-a7be3ad4c991");
+    private static readonly DecisionRequest Request = new("benchmark-user", [Reader], "benchmark",
         "GET", "/benchmark/{id}", "benchmark-tenant");
 
     public static async Task<int> Main(string[] args)
@@ -93,7 +94,8 @@ internal static class Program
             item.Request is null || string.IsNullOrWhiteSpace(item.Request.Module) ||
             string.IsNullOrWhiteSpace(item.Request.HttpMethod) ||
             string.IsNullOrWhiteSpace(item.Request.RouteTemplate) ||
-            string.IsNullOrWhiteSpace(item.Request.TenantId) || item.Request.Roles is null) ||
+            string.IsNullOrWhiteSpace(item.Request.TenantId) || item.Request.RoleIds is null ||
+            item.Request.RoleIds.Any(id => id == Guid.Empty)) ||
             cases.Sum(item => item.Weight) > 10000)
         {
             throw new ArgumentException("Workload must contain valid named cases with positive weights.");
@@ -110,7 +112,7 @@ internal static class Program
         IAuthorizationStore store = scope.ServiceProvider.GetRequiredService<IAuthorizationStore>();
         await store.UpsertPolicyAsync(new EndpointPolicy("benchmark-tenant", "benchmark", "GET",
             "/benchmark/{id}", false, ["benchmark.read"]), CancellationToken.None);
-        await store.ReplaceRoleEntitlementsAsync("benchmark-tenant", "reader", ["benchmark.read"], CancellationToken.None);
+        await store.ReplaceRoleEntitlementsAsync("benchmark-tenant", Reader, ["benchmark.read"], CancellationToken.None);
     }
 
     private static async Task MeasureAllAsync(string scenario, HttpClient client, string key,
@@ -280,14 +282,14 @@ internal static class Program
                 tenantId == Policy.TenantId && module == Policy.Module && httpMethod == Policy.HttpMethod &&
                 routeTemplate == Policy.RouteTemplate ? Policy : null);
 
-        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<string> roles,
-            CancellationToken cancellationToken) => Task.FromResult(roles.Contains("reader") ? Grants :
+        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<Guid> roleIds,
+            CancellationToken cancellationToken) => Task.FromResult(roleIds.Contains(Reader) ? Grants :
                 (IReadOnlySet<string>)new HashSet<string>());
 
         public Task UpsertPolicyAsync(EndpointPolicy policy, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task DeletePolicyAsync(string tenantId, string module, string httpMethod, string routeTemplate,
             CancellationToken cancellationToken) => throw new NotSupportedException();
-        public Task ReplaceRoleEntitlementsAsync(string tenantId, string role, IReadOnlyList<string> entitlements,
+        public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid roleId, IReadOnlyList<string> entitlements,
             CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 

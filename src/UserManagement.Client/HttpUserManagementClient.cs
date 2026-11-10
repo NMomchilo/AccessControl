@@ -26,8 +26,11 @@ public sealed class HttpUserManagementClient(IHttpClientFactory clientFactory,
         response.EnsureSuccessStatusCode();
         UserIdentityResponse resolved = await response.Content.ReadFromJsonAsync<UserIdentityResponse>(cancellationToken)
             ?? throw new InvalidOperationException("User Management returned an empty response.");
-        if (resolved.UserId == Guid.Empty || resolved.Roles is null ||
-            resolved.Roles.Any(role => string.IsNullOrWhiteSpace(role) || role.Length > 64))
+        if (resolved.UserId == Guid.Empty ||
+            !string.Equals(resolved.TenantId, request.TenantId, StringComparison.OrdinalIgnoreCase) ||
+            resolved.Roles is null || resolved.Roles.Count > 16 ||
+            resolved.Roles.Any(role => role.RoleId == Guid.Empty || string.IsNullOrWhiteSpace(role.Code) ||
+                role.Code.Length > 64 || string.IsNullOrWhiteSpace(role.DisplayName)))
         {
             throw new InvalidOperationException("User Management returned an invalid response.");
         }

@@ -10,9 +10,9 @@ public sealed class RolesController(AuthorizationService authorizationService, I
 {
     [HttpGet]
     [ProducesResponseType(typeof(RoleEntitlementsRequest), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAsync([FromQuery] string tenantId, [FromQuery] string role, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAsync([FromQuery] string tenantId, [FromQuery] Guid roleId, CancellationToken cancellationToken)
     {
-        RoleEntitlementsRequest result = await authorizationService.GetRoleEntitlementsAsync(tenantId, role, cancellationToken);
+        RoleEntitlementsRequest result = await authorizationService.GetRoleEntitlementsAsync(tenantId, roleId, cancellationToken);
         logger.LogDebug("Role entitlements API read completed; count {Count}, trace {TraceId}", result.Entitlements.Count, HttpContext.TraceIdentifier);
         return Ok(result);
     }

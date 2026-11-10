@@ -1,11 +1,13 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using UserManagement.Contracts;
 
 namespace UserManagement.Client;
 
 public sealed class UserManagementMiddleware(RequestDelegate next, IUserManagementClient client,
+    IOptions<UserManagementClientOptions> options,
     ILogger<UserManagementMiddleware> logger)
 {
     private const string MappedOid = "http://schemas.microsoft.com/identity/claims/objectidentifier";
@@ -28,7 +30,9 @@ public sealed class UserManagementMiddleware(RequestDelegate next, IUserManageme
 
         string? delegatedScope = context.User.FindFirstValue("scp") ??
             context.User.FindFirstValue("http://schemas.microsoft.com/identity/claims/scope");
-        if (string.IsNullOrWhiteSpace(delegatedScope))
+        if (string.IsNullOrWhiteSpace(delegatedScope) ||
+            !delegatedScope.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Contains(options.Value.RequiredDelegatedScope, StringComparer.Ordinal))
         {
             logger.LogWarning("Authenticated principal has no delegated user scope; trace {TraceId}",
                 context.TraceIdentifier);
@@ -36,7 +40,15 @@ public sealed class UserManagementMiddleware(RequestDelegate next, IUserManageme
             return;
         }
 
-        UserIdentityRequest request = new(id.ToString("D"),
+        string tenantId = context.User.FindFirstValue(options.Value.TenantClaimType) ?? options.Value.DefaultTenantId;
+        if (string.IsNullOrWhiteSpace(tenantId) || tenantId.Length > 128)
+        {
+            logger.LogWarning("Authenticated request has invalid tenant; trace {TraceId}", context.TraceIdentifier);
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+
+        UserIdentityRequest request = new(tenantId, id.ToString("D"),
             context.User.FindFirstValue("preferred_username") ?? context.User.FindFirstValue(ClaimTypes.Email) ??
                 context.User.FindFirstValue(ClaimTypes.Upn) ?? context.User.FindFirstValue("upn") ??
                 context.User.FindFirstValue("unique_name"),
@@ -61,11 +73,21 @@ public sealed class UserManagementMiddleware(RequestDelegate next, IUserManageme
             return;
         }
 
-        ClaimsIdentity identity = new(UserManagementClaims.IdentityAuthenticationType);
-        identity.AddClaim(new Claim(UserManagementClaims.UserId, resolved.UserId.ToString("D")));
-        foreach (string role in resolved.Roles)
+        if (!string.Equals(resolved.TenantId, tenantId.Trim(), StringComparison.OrdinalIgnoreCase))
         {
-            identity.AddClaim(new Claim(UserManagementClaims.Role, role));
+            logger.LogError("User Management returned a different tenant; trace {TraceId}", context.TraceIdentifier);
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return;
+        }
+
+        ClaimsIdentity identity = new([], UserManagementClaims.IdentityAuthenticationType, ClaimTypes.Name,
+            UserManagementClaims.Role);
+        identity.AddClaim(new Claim(UserManagementClaims.UserId, resolved.UserId.ToString("D")));
+        identity.AddClaim(new Claim(UserManagementClaims.TenantId, resolved.TenantId));
+        foreach (UserRoleInfo role in resolved.Roles)
+        {
+            identity.AddClaim(new Claim(UserManagementClaims.RoleId, role.RoleId.ToString("D")));
+            identity.AddClaim(new Claim(UserManagementClaims.Role, role.Code));
         }
 
         context.User.AddIdentity(identity);

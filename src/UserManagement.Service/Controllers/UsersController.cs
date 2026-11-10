@@ -30,19 +30,19 @@ public sealed class UsersController(UserManagementService service, ILogger<Users
     [HttpGet("{objectId}")]
     [ProducesResponseType(typeof(UserIdentityResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetAsync(string objectId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAsync(string objectId, [FromQuery] string tenantId, CancellationToken cancellationToken)
     {
-        UserIdentityResponse? response = await service.GetAsync(objectId, cancellationToken);
+        UserIdentityResponse? response = await service.GetAsync(tenantId, objectId, cancellationToken);
         return response is null ? NotFound() : Ok(response);
     }
 
     [HttpPut("{objectId}/roles")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ReplaceRolesAsync(string objectId, [FromBody] ReplaceRolesRequest request,
+    public async Task<IActionResult> ReplaceRolesAsync(string objectId, [FromQuery] string tenantId, [FromBody] ReplaceRolesRequest request,
         CancellationToken cancellationToken)
     {
-        bool found = await service.ReplaceRolesAsync(objectId, request, cancellationToken);
+        bool found = await service.ReplaceRolesAsync(tenantId, objectId, request, cancellationToken);
         logger.LogInformation("Administrator {Actor} replaced roles; found {Found}; trace {TraceId}",
             HttpContext.Items["UserManagementActor"], found, HttpContext.TraceIdentifier);
         return found ? NoContent() : NotFound();
@@ -51,10 +51,10 @@ public sealed class UsersController(UserManagementService service, ILogger<Users
     [HttpPut("{objectId}/active")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> SetActiveAsync(string objectId, [FromBody] SetActiveRequest request,
+    public async Task<IActionResult> SetActiveAsync(string objectId, [FromQuery] string tenantId, [FromBody] SetActiveRequest request,
         CancellationToken cancellationToken)
     {
-        bool found = await service.SetActiveAsync(objectId, request, cancellationToken);
+        bool found = await service.SetActiveAsync(tenantId, objectId, request, cancellationToken);
         logger.LogInformation("Administrator {Actor} changed user status; found {Found}; trace {TraceId}",
             HttpContext.Items["UserManagementActor"], found, HttpContext.TraceIdentifier);
         return found ? NoContent() : NotFound();

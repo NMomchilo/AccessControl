@@ -1,0 +1,37 @@
+{
+  "TimestampUtc": "2026-11-10T12:44:32.3818329+00:00",
+  "Runtime": ".NET 10.0.10",
+  "Os": "Microsoft Windows 10.0.22631",
+  "ProcessorCount": 20,
+  "RequestsPerRun": 500,
+  "Workload": [
+    {
+      "Name": "default",
+      "Request": {
+        "SubjectId": "benchmark-user",
+        "RoleIds": [
+          "10954aa4-7532-80de-a80e-a7be3ad4c991"
+        ],
+        "Module": "benchmark",
+        "HttpMethod": "GET",
+        "RouteTemplate": "/benchmark/{id}",
+        "TenantId": "benchmark-tenant"
+      },
+      "ExpectedPermit": true,
+      "Weight": 1
+    }
+  ],
+  "Results": [
+    {
+      "Scenario": "remote SQL Server service",
+      "Concurrency": 8,
+      "Requests": 500,
+      "WallTimeMs": 51.7815,
+      "RequestsPerSecond": 9655.958209012872,
+      "P50Ms": 0.5903,
+      "P95Ms": 0.7433,
+      "P99Ms": 13.9933,
+      "MaxMs": 14.2616
+    }
+  ]
+}

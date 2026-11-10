@@ -17,7 +17,7 @@ The local test server skips the real network and TLS. SQLite is not SQL Server a
 
 ## Benchmark a staging deployment
 
-Apply the EF migration and create a protected policy for tenant `benchmark-tenant`, module `benchmark`, method `GET`, route `/benchmark/{id}`, requiring `benchmark.read`. Grant `benchmark.read` to role `reader` in the same tenant. Then run:
+Apply the EF migration and create a protected policy for tenant `benchmark-tenant`, module `benchmark`, method `GET`, route `/benchmark/{id}`, requiring `benchmark.read`. Grant `benchmark.read` to role ID `10954aa4-7532-80de-a80e-a7be3ad4c991` in the same tenant for the default synthetic decision workload. This benchmark exercises Access Control only; it does not require a corresponding User Management user. Then run:
 
 ```powershell
 $env:AccessControlBenchmark__DecisionKey = '<staging decision key>'
@@ -31,7 +31,7 @@ Remote mode uses a real HTTPS connection and the deployment's SQL Server. Use a 
 
 The benchmark sends only decision reads. It does not alter policies or role grants.
 
-For a remote mix of routes and roles, pass a JSON workload file. Each case has a name, weight, `DecisionRequest`, and expected Permit/Deny result. The harness cycles through cases according to their weights and fails on an unexpected decision:
+For a remote mix of routes and role IDs, pass a JSON workload file. Each case has a name, weight, `DecisionRequest` with `roleIds`, and expected Permit/Deny result. The harness cycles through cases according to their weights and fails on an unexpected decision. The supplied historical workload IDs correspond to the deterministic legacy-string migration; use IDs returned by User Management for newly created roles:
 
 ```powershell
 dotnet run --project benchmarks/AccessControl.Benchmarks -c Release -- `
@@ -45,7 +45,7 @@ The [available-policy benchmark report](../docs/available-policy-mix-benchmark-2
 
 ## Full JWT → User Management → Access Control → controller flow
 
-The [access-flow benchmark](AccessFlow.Benchmarks/Program.cs) starts a temporary consuming API, validates locally signed RS256 JWTs, runs both real middleware packages, calls the two live services backed by Docker SQL Server, and checks that the controller ran. It measures one cached user, 100 existing users, and new-user sign-ins. Configure the four service URL/key settings as environment variables and seed `GET /integration/{id}` with an `integration.view` grant for `reviewer` in the Access Control database. Then run:
+The [access-flow benchmark](AccessFlow.Benchmarks/Program.cs) starts a temporary consuming API, validates locally signed RS256 JWTs, runs both real middleware packages, calls the two live services backed by Docker SQL Server, and checks that the controller ran. It measures one cached user, 100 existing users, and new-user sign-ins. Configure the four service URL/key settings as environment variables. Use `GET /v1/roles?tenantId=default` in User Management to find the `reviewer` role ID (create that role first if needed), then seed `GET /integration/{id}` with an `integration.view` grant for **that role ID** in Access Control. Then run:
 
 ```powershell
 dotnet run --project benchmarks/AccessFlow.Benchmarks -c Release -- `
@@ -53,7 +53,7 @@ dotnet run --project benchmarks/AccessFlow.Benchmarks -c Release -- `
   --output artifacts/benchmarks/access-flow.json
 ```
 
-The [end-to-end benchmark report](../docs/end-to-end-access-flow-benchmark-2026-11-09.md) contains the measured runs and limits. Its JWT is signed and verified locally; it is not an Entra token.
+The [tenant/role-ID benchmark report](../docs/tenant-role-ids-benchmark-2026-11-10.md) contains new measurements and raw JSON outputs. The [earlier end-to-end report](../docs/end-to-end-access-flow-benchmark-2026-11-09.md) used string roles. The benchmark JWT is signed and verified locally; it is not an Entra token.
 
 ## User Management on Docker SQL Server
 

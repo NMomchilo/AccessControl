@@ -2,7 +2,7 @@
 
 ## User Management before authorization
 
-`UserManagement.Service` owns a separate SQL Server database containing users keyed by Entra `oid`, their active status, and application role assignments. A first delegated user request creates the user with `reviewer`. The reusable `UserManagement.Client` NuGet runs after JWT authentication, calls the service, and adds `access_control_role` claims to `HttpContext.User` for that request. `AccessControl.Client` can be configured to read only this dedicated claim type before sending its decision request. User Management uses per-client and administrator credentials, a bounded five-second client cache, and a database revision polled by all client instances after administrative changes. [API and client details](user-management-api.md).
+`UserManagement.Service` owns a separate SQL Server database with tenant-scoped users keyed by `(TenantId, oid)`, a role catalog with GUID IDs, and user-to-role assignments. A first delegated user request creates the user with that tenant's `reviewer` role. The reusable `UserManagement.Client` NuGet runs after JWT authentication and adds role-ID and role-code claims to `HttpContext.User` for that request. `AccessControl.Client` reads only role IDs from the dedicated User Management identity. User Management uses per-client and administrator credentials, a bounded five-second client cache keyed by tenant and oid, and a database revision polled after administrative changes. [API and client details](user-management-api.md).
 
 ## Access Control decision flow
 
@@ -12,12 +12,12 @@ flowchart LR
     Route --> Auth[Consuming service validates Entra JWT]
     Auth --> UserClient[UserManagement.Client middleware and cache]
     UserClient -->|oid and profile on cache miss| UserApi[UserManagement.Service]
-    UserApi --> Users[(Users and UserRoles)]
+    UserApi --> Users[(Users, Roles, and UserRoles)]
     Users --> UserApi
-    UserApi -->|active status and roles| UserClient
-    UserClient -->|application role claims| NuGet[AccessControl.Client middleware]
+    UserApi -->|active status and role IDs| UserClient
+    UserClient -->|application role-ID claims| NuGet[AccessControl.Client middleware]
     UserClient -->|401, 403, or 503| Stop[Controller does not run]
-    NuGet -->|tenant, module, method, route template, subject, roles| API[AccessControl.Service]
+    NuGet -->|tenant, module, method, route template, subject, role IDs| API[AccessControl.Service]
     API --> Policy[(EndpointPolicies + required entitlements)]
     API --> Grants[(RoleEntitlements)]
     Policy --> Evaluate[Evaluate policy]
@@ -27,11 +27,13 @@ flowchart LR
     NuGet -->|401, 403, or 503| Stop[Controller does not run]
 ```
 
-The package sits after host authentication and route matching. It reads the **route template** (`/customers/{id}`), not a concrete URL (`/customers/123`). There are no authorization attributes on controllers. The host owns token validation. The client sends trusted identity claims, role claims, tenant, module, method, and route template to the service. The service owns policies and grant evaluation.
+The packages sit after host authentication and route matching. Access Control reads the **route template** (`/customers/{id}`), not a concrete URL (`/customers/123`). There are no authorization attributes on controllers. The host owns token validation. The consuming API forwards subject and role IDs from User Management together with tenant, module, method, and route template. The services do not call one another. Access Control trusts the consuming API's assertions and should use scoped workload credentials before accepting mutually untrusted callers.
 
-`EndpointPolicies` has one row per `(TenantId, Module, HttpMethod, RouteTemplate)` with `IsPublic`. `EndpointPolicyEntitlements` holds its allowed entitlement alternatives. `RoleEntitlements` grants entitlements to roles within a tenant. A policy permits when at least one required entitlement is in the union of the caller's role grants. A public policy permits without authentication. No policy means Deny.
+`EndpointPolicies` has one row per `(TenantId, Module, HttpMethod, RouteTemplate)` with `IsPublic`. `EndpointPolicyEntitlements` holds its allowed entitlement alternatives. `RoleEntitlements` grants entitlements to `(TenantId, RoleId)` pairs; it has no user columns. A policy permits when at least one required entitlement is in the union of the caller's role-ID grants. A public policy permits without authentication. No policy means Deny.
 
 The EF migrations add the endpoint policy tables and a shared `AuthorizationRevisions` row, while preserving legacy `AccessPolicies`; old rows have no effect on endpoint decisions. Provision new endpoint policies before adopting the middleware.
+
+The tenant/role-ID migrations put existing User Management users in `default`, introduce role IDs, and map legacy `(tenant, role code)` grants to the same IDs in both databases. They preserve matching existing assignments and grants but are one-way; back up both databases and deploy both services and client packages together. New roles have generated IDs and tenant-unique codes. Display names may repeat. User Management enforces that assigned role IDs belong to the user's tenant; Access Control has no cross-database foreign key to its role catalog.
 
 Each service instance holds a bounded, five-second cache of policy rows and role grant sets. Concurrent misses for the same key share one database load. An administration write updates the revision in the same transaction as the policy or grant change, then clears the local cache. Other instances poll the revision every second and clear their caches when it changes. Entry expiration is the five-second fallback if a poll fails or an out-of-band database write does not advance the revision. This defines the accepted revocation delay: up to five seconds for already cached inputs, except a request already in flight. The cache stores policy and grant data, not per-user Permit decisions.
 
