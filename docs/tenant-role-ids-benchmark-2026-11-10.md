@@ -2,7 +2,7 @@
 
 These are **single local runs**, intended to verify that the updated service and NuGet paths work and to show the difference between repeated lookups and warm cache hits. They are not a production capacity estimate or a controlled before/after comparison with the previous string-role build.
 
-SQL Server 2022 ran in the repository's Docker container. The two services used dedicated migrated databases, `TenantRoleUmTest20261110` and `TenantRoleAcTest20261110`, on the same Windows host as the clients. The migration test preserved a legacy `default/reviewer` assignment and matching Access Control grant with the same role ID. The end-to-end benchmark validated locally signed RS256 JWTs, ran both NuGet middleware packages, and checked that denied or invalid-token requests never reached the controller.
+SQL Server 2022 ran in the repository's Docker container. The two services used dedicated databases, `TenantRoleUmTest20261110` and `TenantRoleAcTest20261110`, on the same Windows host as the clients. At the time of this benchmark, the migration chain included a legacy role-string conversion; the current first-version migrations have since replaced that chain with clean initial schemas. These numbers measure the service and middleware code paths, not the new migration. The end-to-end benchmark validated locally signed RS256 JWTs, ran both NuGet middleware packages, and checked that denied or invalid-token requests never reached the controller.
 
 | Path | Requests | Concurrency | Throughput | p95 | Source calls during measurement |
 |---|---:|---:|---:|---:|---:|

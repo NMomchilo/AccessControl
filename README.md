@@ -84,7 +84,7 @@ Replace the placeholders with your Entra configuration. The sample listens on `h
 
 ### Create a role grant, policy, and test request
 
-In [User Management Swagger UI](http://localhost:5220/swagger), authorize with its administrator key and call `POST /v1/roles` with `{ "tenantId": "default", "code": "reviewer", "displayName": "Reviewer" }`. Copy the returned `roleId`. If `reviewer` already exists (for example, after migrating an existing user), call `GET /v1/roles?tenantId=default` instead.
+In [User Management Swagger UI](http://localhost:5220/swagger), authorize with its administrator key and call `POST /v1/roles` with `{ "tenantId": "default", "code": "reviewer", "displayName": "Reviewer" }`. Copy the returned `roleId`. If a user has already signed in, User Management creates `reviewer` automatically; call `GET /v1/roles?tenantId=default` to find its ID.
 
 In [Access Control Swagger UI](https://localhost:7219/swagger), authorize with `ApiKeys:AdminKey` from the local settings. Grant `customers.view` to that exact ID using `PUT /v1/roles/entitlements` (replace the sample GUID below with the value returned by User Management):
 
@@ -168,7 +168,7 @@ The optional endpoint catalog writes `(module, HTTP method, route template)` ent
 
 For production, supply distinct credentials and connection strings through a secret store, restrict access to the service APIs and databases, and apply migrations as a deployment step. Development-only startup migration is disabled outside Development. The current Access Control decision key is shared among consuming services and the decision API trusts their submitted roles, subjects, modules, and tenants; bind caller credentials to their permitted scope before using this design across mutually untrusted services.
 
-The tenant/role-ID migrations preserve existing `default` tenant user assignments and map legacy role strings to matching IDs independently in both databases. They are **one-way migrations** because a role ID cannot safely be converted back to its former name. Back up both databases before production deployment and roll out the two services and client packages together. New role assignments use IDs from User Management; Access Control does not maintain a cross-database foreign key to those roles.
+Each service now has one initial migration that creates the tenant and role-ID schema directly. It does not copy legacy string roles or existing data. These baselines require **empty databases**. If a local database was created with the earlier migration chain, use a new empty database name or deliberately recreate that development database after saving anything needed. Keep the two services and client packages on matching versions. New role assignments use IDs from User Management; Access Control does not maintain a cross-database foreign key to those roles.
 
 ## Local troubleshooting
 

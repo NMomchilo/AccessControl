@@ -62,4 +62,4 @@ A public policy uses `"isPublic": true` and `"requiredEntitlements": []`. A prot
 
 `GET /v1/roles/entitlements?tenantId=default&roleId=<role-guid>` returns the current grants. Create or find the role ID in User Management first. The `PUT` request replaces the entire entitlement set, so include all grants you want to retain.
 
-The decision service trusts the consuming service's authenticated subject and role-ID claims; it does not query User Management. Keep decision credentials secret, use HTTPS, and bind callers to allowed modules and tenants before accepting mutually untrusted services. The tenant/role-ID migration maps legacy strings to matching IDs in both databases and is one-way; back up databases before deploying it.
+The decision service trusts the consuming service's authenticated subject and role-ID claims; it does not query User Management. Keep decision credentials secret, use HTTPS, and bind callers to allowed modules and tenants before accepting mutually untrusted services. The initial migration creates role-ID grants in an empty database; it does not import legacy string roles.

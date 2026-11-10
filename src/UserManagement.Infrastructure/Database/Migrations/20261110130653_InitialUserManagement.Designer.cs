@@ -12,8 +12,8 @@ using UserManagement.Infrastructure.Database;
 namespace UserManagement.Infrastructure.Database.Migrations
 {
     [DbContext(typeof(UserManagementDbContext))]
-    [Migration("20261110122356_TenantRoleIds")]
-    partial class TenantRoleIds
+    [Migration("20261110130653_InitialUserManagement")]
+    partial class InitialUserManagement
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

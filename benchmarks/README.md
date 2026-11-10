@@ -31,7 +31,7 @@ Remote mode uses a real HTTPS connection and the deployment's SQL Server. Use a 
 
 The benchmark sends only decision reads. It does not alter policies or role grants.
 
-For a remote mix of routes and role IDs, pass a JSON workload file. Each case has a name, weight, `DecisionRequest` with `roleIds`, and expected Permit/Deny result. The harness cycles through cases according to their weights and fails on an unexpected decision. The supplied historical workload IDs correspond to the deterministic legacy-string migration; use IDs returned by User Management for newly created roles:
+For a remote mix of routes and role IDs, pass a JSON workload file. Each case has a name, weight, `DecisionRequest` with `roleIds`, and expected Permit/Deny result. The harness cycles through cases according to their weights and fails on an unexpected decision. The supplied workload IDs are synthetic; seed matching grants for permitted cases or replace them with IDs returned by User Management:
 
 ```powershell
 dotnet run --project benchmarks/AccessControl.Benchmarks -c Release -- `
