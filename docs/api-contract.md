@@ -1,5 +1,7 @@
 # Access Control API contract
 
+User provisioning and application role resolution are documented in [User Management API and client](user-management-api.md). The consuming service must run User Management after JWT authentication and before Access Control, then configure `AccessControl:RoleClaimType` as `access_control_role` and `AccessControl:RoleIdentityAuthenticationType` as `UserManagement`.
+
 Use HTTPS. Every request except `GET /health` requires `X-Access-Control-Key`. The decision key can call only `POST /v1/decisions`; the separate admin key is for policies and role entitlements.
 
 ## Decision

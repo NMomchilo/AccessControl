@@ -61,6 +61,21 @@ public sealed class AccessControlMiddlewareTests
     }
 
     [Fact]
+    public async Task InvokeAsync_DedicatedRoleClaim_IgnoresOtherRoleClaimsAsync()
+    {
+        CapturingDecisionClient client = new();
+        AccessControlMiddleware sut = new(_ => Task.CompletedTask, client,
+            Options.Create(new AccessControlClientOptions { Module = "customers", RoleClaimType = "access_control_role" }),
+            NullLogger<AccessControlMiddleware>.Instance);
+        DefaultHttpContext context = CreateContext();
+        context.User.AddIdentity(new ClaimsIdentity([new Claim("access_control_role", "reviewer")]));
+
+        await sut.InvokeAsync(context);
+
+        Assert.Equal(["reviewer"], client.Request?.Roles);
+    }
+
+    [Fact]
     public async Task InvokeAsync_AuthenticatedRequestWithoutOid_Returns401Async()
     {
         CapturingDecisionClient client = new();

@@ -30,3 +30,49 @@ dotnet run --project benchmarks/AccessControl.Benchmarks -c Release -- `
 Remote mode uses a real HTTPS connection and the deployment's SQL Server. Use a staging environment with representative policies, grants, network placement, and logging. Keep the decision key in an environment variable; the harness does not include it in output. Repeat runs and compare medians because host scheduling and database state can move individual measurements.
 
 The benchmark sends only decision reads. It does not alter policies or role grants.
+
+For a remote mix of routes and roles, pass a JSON workload file. Each case has a name, weight, `DecisionRequest`, and expected Permit/Deny result. The harness cycles through cases according to their weights and fails on an unexpected decision:
+
+```powershell
+dotnet run --project benchmarks/AccessControl.Benchmarks -c Release -- `
+  --remote-url https://localhost:7219 `
+  --workload-file benchmarks/AccessControl.Benchmarks/workloads/appdb-available.json `
+  --requests 5000 --concurrency 1,16,64 `
+  --output artifacts/benchmarks/appdb-available.json
+```
+
+The [available-policy benchmark report](../docs/available-policy-mix-benchmark-2026-11-09.md) records runs against the only configured `AppDb` policy and a separate uniform five-case test mix. The repository has no request-frequency data, so the uniform weights are not real traffic weights.
+
+## Full JWT → User Management → Access Control → controller flow
+
+The [access-flow benchmark](AccessFlow.Benchmarks/Program.cs) starts a temporary consuming API, validates locally signed RS256 JWTs, runs both real middleware packages, calls the two live services backed by Docker SQL Server, and checks that the controller ran. It measures one cached user, 100 existing users, and new-user sign-ins. Configure the four service URL/key settings as environment variables and seed `GET /integration/{id}` with an `integration.view` grant for `reviewer` in the Access Control database. Then run:
+
+```powershell
+dotnet run --project benchmarks/AccessFlow.Benchmarks -c Release -- `
+  --requests 5000 --concurrency 16 --users 100 --new-users 200 `
+  --output artifacts/benchmarks/access-flow.json
+```
+
+The [end-to-end benchmark report](../docs/end-to-end-access-flow-benchmark-2026-11-09.md) contains the measured runs and limits. Its JWT is signed and verified locally; it is not an Entra token.
+
+## User Management on Docker SQL Server
+
+Apply the User Management migrations to a dedicated SQL Server database before running the direct database benchmark. Keep the connection string outside repository files:
+
+```powershell
+$env:UserManagementBenchmark__ConnectionString = '<dedicated SQL Server benchmark connection string>'
+dotnet run --project benchmarks/UserManagement.Benchmarks -c Release -- `
+  --database sqlserver --requests 5000 --concurrency 16 `
+  --output artifacts/benchmarks/user-management-sqlserver.json
+```
+
+For the live service benchmark, start User Management against that database and use a client credential:
+
+```powershell
+$env:UserManagementBenchmark__ClientKey = '<client credential>'
+dotnet run --project benchmarks/UserManagement.Benchmarks -c Release -- `
+  --remote-url http://localhost:5220 --requests 5000 --concurrency 16 `
+  --output artifacts/benchmarks/user-management-http.json
+```
+
+The first scenario calls SQL Server or HTTP on every request. The second scenario uses warm hits in the bounded client cache and reports zero source calls during measurement. This warm-hit figure is an in-process cache lookup rate, not service throughput. See the [Docker SQL Server benchmark report](../docs/docker-sqlserver-benchmark-2026-11-09.md) for measured results and limitations.

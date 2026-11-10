@@ -27,6 +27,9 @@
     <ProjectReference Include="..\..\src\AccessControl.Contracts\AccessControl.Contracts.csproj" />
     <ProjectReference Include="..\..\src\AccessControl.Client\AccessControl.Client.csproj" />
     <ProjectReference Include="..\..\src\AccessControl.Service\AccessControl.Service.csproj" />
+    <ProjectReference Include="..\..\src\UserManagement.Client\UserManagement.Client.csproj" />
+    <ProjectReference Include="..\..\src\UserManagement.Service\UserManagement.Service.csproj" />
+    <ProjectReference Include="..\..\src\UserManagement.Infrastructure\UserManagement.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

@@ -68,6 +68,7 @@ public sealed class DecisionApiTests
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            builder.UseSetting("AccessControlDatabase:ApplyMigrationsOnStartup", "false");
             builder.UseSetting("ConnectionStrings:AccessControl", "Server=localhost;Database=unused;Trusted_Connection=True");
             builder.UseSetting("ApiKeys:DecisionKey", "decision-test-key");
             builder.UseSetting("ApiKeys:AdminKey", "admin-test-key");

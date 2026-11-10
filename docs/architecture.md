@@ -1,10 +1,22 @@
 # Architecture
 
+## User Management before authorization
+
+`UserManagement.Service` owns a separate SQL Server database containing users keyed by Entra `oid`, their active status, and application role assignments. A first delegated user request creates the user with `reviewer`. The reusable `UserManagement.Client` NuGet runs after JWT authentication, calls the service, and adds `access_control_role` claims to `HttpContext.User` for that request. `AccessControl.Client` can be configured to read only this dedicated claim type before sending its decision request. User Management uses per-client and administrator credentials, a bounded five-second client cache, and a database revision polled by all client instances after administrative changes. [API and client details](user-management-api.md).
+
+## Access Control decision flow
+
 ```mermaid
 flowchart LR
-    Caller[Caller] --> Auth[Consuming service authenticates caller]
-    Auth --> Route[ASP.NET Core matches route and HTTP method]
-    Route --> NuGet[AccessControl.Client middleware]
+    Caller[Caller] --> Route[ASP.NET Core matches route and HTTP method]
+    Route --> Auth[Consuming service validates Entra JWT]
+    Auth --> UserClient[UserManagement.Client middleware and cache]
+    UserClient -->|oid and profile on cache miss| UserApi[UserManagement.Service]
+    UserApi --> Users[(Users and UserRoles)]
+    Users --> UserApi
+    UserApi -->|active status and roles| UserClient
+    UserClient -->|application role claims| NuGet[AccessControl.Client middleware]
+    UserClient -->|401, 403, or 503| Stop[Controller does not run]
     NuGet -->|tenant, module, method, route template, subject, roles| API[AccessControl.Service]
     API --> Policy[(EndpointPolicies + required entitlements)]
     API --> Grants[(RoleEntitlements)]

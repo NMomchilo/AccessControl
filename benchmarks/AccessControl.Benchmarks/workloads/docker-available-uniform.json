@@ -1,0 +1,67 @@
+[
+  {
+    "name": "benchmark GET reader",
+    "weight": 1,
+    "expectedPermit": true,
+    "request": {
+      "subjectId": "benchmark-user",
+      "roles": ["reader"],
+      "module": "benchmark",
+      "httpMethod": "GET",
+      "routeTemplate": "/benchmark/{id}",
+      "tenantId": "benchmark-tenant"
+    }
+  },
+  {
+    "name": "protected GET revocation-reader",
+    "weight": 1,
+    "expectedPermit": true,
+    "request": {
+      "subjectId": "benchmark-user",
+      "roles": ["revocation-reader"],
+      "module": "smoke",
+      "httpMethod": "GET",
+      "routeTemplate": "/protected/{id}",
+      "tenantId": "docker-revocation-test"
+    }
+  },
+  {
+    "name": "public GET anonymous",
+    "weight": 1,
+    "expectedPermit": true,
+    "request": {
+      "subjectId": null,
+      "roles": [],
+      "module": "smoke",
+      "httpMethod": "GET",
+      "routeTemplate": "/public",
+      "tenantId": "docker-revocation-test"
+    }
+  },
+  {
+    "name": "integration GET reviewer",
+    "weight": 1,
+    "expectedPermit": true,
+    "request": {
+      "subjectId": "benchmark-user",
+      "roles": ["reviewer"],
+      "module": "integration",
+      "httpMethod": "GET",
+      "routeTemplate": "/integration/{id}",
+      "tenantId": "default"
+    }
+  },
+  {
+    "name": "integration GET missing entitlement",
+    "weight": 1,
+    "expectedPermit": false,
+    "request": {
+      "subjectId": "benchmark-user",
+      "roles": ["ungranted"],
+      "module": "integration",
+      "httpMethod": "GET",
+      "routeTemplate": "/integration/{id}",
+      "tenantId": "default"
+    }
+  }
+]

@@ -31,20 +31,23 @@ internal static class Program
         try
         {
             Settings settings = Settings.Parse(args);
+            BenchmarkCase[] cases = settings.WorkloadFile is null
+                ? [new BenchmarkCase("default", Request, true, 1)]
+                : LoadWorkload(settings.WorkloadFile);
             List<BenchmarkResult> results = [];
             if (settings.RemoteUrl is not null)
             {
                 string key = Environment.GetEnvironmentVariable("AccessControlBenchmark__DecisionKey")
                     ?? throw new ArgumentException("Set AccessControlBenchmark__DecisionKey for remote mode.");
                 using HttpClient client = new() { BaseAddress = new Uri(settings.RemoteUrl), Timeout = TimeSpan.FromSeconds(10) };
-                await MeasureAllAsync("remote SQL Server service", client, key, settings, results);
+                await MeasureAllAsync("remote SQL Server service", client, key, settings, cases, results);
             }
             else
             {
                 await using (BenchmarkFactory fake = new(BenchmarkStore.Fake))
                 {
                     using HttpClient client = fake.CreateClient();
-                    await MeasureAllAsync("in-memory store", client, DecisionKey, settings, results);
+                    await MeasureAllAsync("in-memory store", client, DecisionKey, settings, cases, results);
                 }
 
                 string dataSource = $"access-control-benchmark-{Guid.NewGuid():N}";
@@ -55,12 +58,12 @@ internal static class Program
                 {
                     using HttpClient client = sqlite.CreateClient();
                     await SeedAsync(sqlite.Services);
-                    await MeasureAllAsync("SQLite store", client, DecisionKey, settings, results);
+                    await MeasureAllAsync("SQLite store", client, DecisionKey, settings, cases, results);
                 }
             }
 
             BenchmarkReport report = new(DateTimeOffset.UtcNow, RuntimeInformation.FrameworkDescription,
-                RuntimeInformation.OSDescription, Environment.ProcessorCount, settings.RequestCount, results);
+                RuntimeInformation.OSDescription, Environment.ProcessorCount, settings.RequestCount, cases, results);
             string outputPath = Path.GetFullPath(settings.OutputPath);
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(report,
@@ -82,6 +85,23 @@ internal static class Program
         }
     }
 
+    private static BenchmarkCase[] LoadWorkload(string path)
+    {
+        BenchmarkCase[] cases = JsonSerializer.Deserialize<BenchmarkCase[]>(File.ReadAllText(path),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
+        if (cases.Length == 0 || cases.Any(item => string.IsNullOrWhiteSpace(item.Name) || item.Weight < 1 ||
+            item.Request is null || string.IsNullOrWhiteSpace(item.Request.Module) ||
+            string.IsNullOrWhiteSpace(item.Request.HttpMethod) ||
+            string.IsNullOrWhiteSpace(item.Request.RouteTemplate) ||
+            string.IsNullOrWhiteSpace(item.Request.TenantId) || item.Request.Roles is null) ||
+            cases.Sum(item => item.Weight) > 10000)
+        {
+            throw new ArgumentException("Workload must contain valid named cases with positive weights.");
+        }
+
+        return cases;
+    }
+
     private static async Task SeedAsync(IServiceProvider services)
     {
         using IServiceScope scope = services.CreateScope();
@@ -94,14 +114,14 @@ internal static class Program
     }
 
     private static async Task MeasureAllAsync(string scenario, HttpClient client, string key,
-        Settings settings, List<BenchmarkResult> results)
+        Settings settings, IReadOnlyList<BenchmarkCase> cases, List<BenchmarkResult> results)
     {
         foreach (int concurrency in settings.Concurrency)
         {
-            await SendBatchAsync(client, key, Math.Min(200, settings.RequestCount), concurrency, null);
+            await SendBatchAsync(client, key, Math.Min(200, settings.RequestCount), concurrency, cases, null);
             long[] ticks = new long[settings.RequestCount];
             Stopwatch wall = Stopwatch.StartNew();
-            await SendBatchAsync(client, key, settings.RequestCount, concurrency, ticks);
+            await SendBatchAsync(client, key, settings.RequestCount, concurrency, cases, ticks);
             wall.Stop();
             Array.Sort(ticks);
             double ToMs(long value) => value * 1000.0 / Stopwatch.Frequency;
@@ -111,9 +131,11 @@ internal static class Program
         }
     }
 
-    private static async Task SendBatchAsync(HttpClient client, string key, int count, int concurrency, long[]? ticks)
+    private static async Task SendBatchAsync(HttpClient client, string key, int count, int concurrency,
+        IReadOnlyList<BenchmarkCase> cases, long[]? ticks)
     {
         int next = -1;
+        int totalWeight = cases.Sum(item => item.Weight);
         Task[] workers = Enumerable.Range(0, concurrency).Select(async _ =>
         {
             while (true)
@@ -124,18 +146,31 @@ internal static class Program
                     return;
                 }
 
+                int selection = index % totalWeight;
+                BenchmarkCase selected = cases[0];
+                foreach (BenchmarkCase item in cases)
+                {
+                    selection -= item.Weight;
+                    if (selection < 0)
+                    {
+                        selected = item;
+                        break;
+                    }
+                }
+
                 using HttpRequestMessage message = new(HttpMethod.Post, "v1/decisions")
                 {
-                    Content = JsonContent.Create(Request)
+                    Content = JsonContent.Create(selected.Request)
                 };
                 message.Headers.Add("X-Access-Control-Key", key);
                 long started = Stopwatch.GetTimestamp();
                 using HttpResponseMessage response = await client.SendAsync(message);
                 DecisionResponse? decision = await response.Content.ReadFromJsonAsync<DecisionResponse>();
                 long elapsed = Stopwatch.GetTimestamp() - started;
-                if (!response.IsSuccessStatusCode || decision?.Permit != true)
+                if (!response.IsSuccessStatusCode || decision?.Permit != selected.ExpectedPermit)
                 {
-                    throw new InvalidOperationException($"Decision failed at request {index}: HTTP {(int)response.StatusCode}, " +
+                    throw new InvalidOperationException($"Decision failed for {selected.Name} at request {index}: " +
+                        $"HTTP {(int)response.StatusCode}, " +
                         $"reason {decision?.Reason ?? "missing response"}");
                 }
 
@@ -151,13 +186,15 @@ internal static class Program
     private static long Percentile(long[] sorted, double percentile) =>
         sorted[Math.Clamp((int)Math.Ceiling(sorted.Length * percentile) - 1, 0, sorted.Length - 1)];
 
-    private sealed record Settings(int RequestCount, int[] Concurrency, string? RemoteUrl, string OutputPath)
+    private sealed record Settings(int RequestCount, int[] Concurrency, string? RemoteUrl,
+        string? WorkloadFile, string OutputPath)
     {
         public static Settings Parse(string[] args)
         {
             int requests = 2000;
             int[] concurrency = [1, 16];
             string? remoteUrl = null;
+            string? workloadFile = null;
             string output = "artifacts/benchmarks/latest.json";
             for (int i = 0; i < args.Length; i++)
             {
@@ -172,6 +209,7 @@ internal static class Program
                     case "--requests": requests = int.Parse(value); break;
                     case "--concurrency": concurrency = value.Split(',').Select(int.Parse).ToArray(); break;
                     case "--remote-url": remoteUrl = value; break;
+                    case "--workload-file": workloadFile = value; break;
                     case "--output": output = value; break;
                     default: throw new ArgumentException($"Unknown option: {args[i - 1]}");
                 }
@@ -186,7 +224,12 @@ internal static class Program
             {
                 throw new ArgumentException("Remote URL must be an absolute HTTPS URL.");
             }
-            return new Settings(requests, concurrency, remoteUrl, output);
+            if (workloadFile is not null && remoteUrl is null)
+            {
+                throw new ArgumentException("--workload-file requires --remote-url.");
+            }
+
+            return new Settings(requests, concurrency, remoteUrl, workloadFile, output);
         }
     }
 
@@ -195,6 +238,7 @@ internal static class Program
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            builder.UseSetting("AccessControlDatabase:ApplyMigrationsOnStartup", "false");
             builder.UseContentRoot(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
                 "../../../../../src/AccessControl.Service")));
             builder.UseSetting("ConnectionStrings:AccessControl", "Server=localhost;Database=unused;Trusted_Connection=True");
@@ -248,8 +292,9 @@ internal static class Program
     }
 
     private enum BenchmarkStore { Fake, Sqlite }
+    private sealed record BenchmarkCase(string Name, DecisionRequest Request, bool ExpectedPermit, int Weight);
     private sealed record BenchmarkResult(string Scenario, int Concurrency, int Requests, double WallTimeMs,
         double RequestsPerSecond, double P50Ms, double P95Ms, double P99Ms, double MaxMs);
     private sealed record BenchmarkReport(DateTimeOffset TimestampUtc, string Runtime, string Os, int ProcessorCount,
-        int RequestsPerRun, IReadOnlyList<BenchmarkResult> Results);
+        int RequestsPerRun, IReadOnlyList<BenchmarkCase> Workload, IReadOnlyList<BenchmarkResult> Results);
 }

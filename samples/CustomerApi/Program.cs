@@ -1,5 +1,6 @@
 using AccessControl.Client;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using UserManagement.Client;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -10,6 +11,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.RequireHttpsMetadata = true;
     });
 builder.Services.AddAuthorization();
+builder.Services.AddUserManagement(builder.Configuration);
 builder.Services.AddAccessControl(builder.Configuration);
 builder.Services.AddControllers();
 
@@ -17,6 +19,7 @@ WebApplication app = builder.Build();
 app.UseHttpsRedirection();
 app.UseRouting();
 app.UseAuthentication();
+app.UseUserManagement();
 app.UseAccessControl();
 app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));

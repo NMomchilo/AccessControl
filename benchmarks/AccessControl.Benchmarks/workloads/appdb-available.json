@@ -1,0 +1,15 @@
+[
+  {
+    "name": "customers GET advisor",
+    "weight": 1,
+    "expectedPermit": true,
+    "request": {
+      "subjectId": "benchmark-user",
+      "roles": ["advisor"],
+      "module": "customers",
+      "httpMethod": "GET",
+      "routeTemplate": "/customers/{id}",
+      "tenantId": "default"
+    }
+  }
+]

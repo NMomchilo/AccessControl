@@ -6,7 +6,7 @@
     "description": "Manage endpoint policies and role entitlements, then ask whether a request may continue. A policy is identified by tenant, module, HTTP method, and route template. Required entitlements use OR semantics. A missing policy denies access."
   },
   "servers": [
-    { "url": "http://localhost:5219", "description": "Local Development launch profile" }
+    { "url": "/", "description": "Same origin as Swagger UI (local HTTP or HTTPS Development profile)" }
   ],
   "tags": [
     { "name": "Health", "description": "Liveness check" },

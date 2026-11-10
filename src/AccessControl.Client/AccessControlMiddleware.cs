@@ -56,7 +56,13 @@ public sealed class AccessControlMiddleware(
         string tenantId = (authenticated ? context.User.FindFirstValue(settings.TenantClaimType) : null)
             ?? settings.DefaultTenantId;
         string[] roles = authenticated
-            ? context.User.Claims.Where(claim => claim.Type == ClaimTypes.Role || claim.Type == "role")
+            ? context.User.Identities
+                .Where(identity => settings.RoleIdentityAuthenticationType is null ||
+                    identity.AuthenticationType == settings.RoleIdentityAuthenticationType)
+                .SelectMany(identity => identity.Claims)
+                .Where(claim => settings.RoleClaimType is { Length: > 0 }
+                    ? claim.Type == settings.RoleClaimType
+                    : claim.Type == ClaimTypes.Role || claim.Type == "role")
                 .Select(claim => claim.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
             : [];
         DecisionRequest request = new(subjectId, roles, settings.Module, method, route, tenantId);

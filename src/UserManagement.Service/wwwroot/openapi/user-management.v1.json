@@ -1,0 +1,185 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "User Management Service API",
+    "version": "1.0.0",
+    "description": "Resolve Entra users by their validated oid, assign reviewer on first sign-in, and administer application roles and active status. The consuming service validates the user JWT before calling resolve. This service trusts the oid asserted by a caller with a client credential. Client and administrator credentials have separate scopes."
+  },
+  "servers": [
+    { "url": "/", "description": "Same origin as Swagger UI (local HTTP or HTTPS Development profile)" }
+  ],
+  "tags": [
+    { "name": "Health", "description": "Liveness and database readiness" },
+    { "name": "Client", "description": "User resolution and cache revision for consuming services" },
+    { "name": "Administration", "description": "User role and active-status management" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Check service liveness",
+        "description": "Returns success when the process responds. This endpoint does not check the database.",
+        "operationId": "getUserManagementHealth",
+        "security": [],
+        "responses": {
+          "200": { "description": "Service process is running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthResponse" }, "example": { "status": "ok" } } } }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Check database readiness",
+        "description": "Checks whether the User Management database can be reached. It does not apply migrations.",
+        "operationId": "getUserManagementReadiness",
+        "security": [],
+        "responses": {
+          "200": { "description": "Database connection succeeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthResponse" }, "example": { "status": "ready" } } } },
+          "503": { "description": "Database connection failed" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      }
+    },
+    "/v1/users/resolve": {
+      "post": {
+        "tags": ["Client"],
+        "summary": "Find or create a user and return application roles",
+        "description": "Uses the Entra oid as the identity key. An unknown oid creates an active user with the reviewer role. Email and display name are optional profile data and never identify an existing user. An inactive user is returned with isActive=false; the consuming middleware denies that request.",
+        "operationId": "resolveUser",
+        "security": [{ "ClientApiKey": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UserIdentityRequest" },
+              "example": { "objectId": "9155ff4d-2708-4770-b87e-e238645ec5df", "email": "user@example.com", "displayName": "Example User" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "User resolved or created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserIdentityResponse" }, "example": { "userId": "70f515ab-3c8d-42ab-92a3-3a06f1f9d938", "isActive": true, "roles": ["reviewer"] } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      }
+    },
+    "/v1/users/revision": {
+      "get": {
+        "tags": ["Client"],
+        "summary": "Read the shared role revision",
+        "description": "Consuming instances poll this value to invalidate cached roles and active status after administrator changes.",
+        "operationId": "getUserRoleRevision",
+        "security": [{ "ClientApiKey": [] }],
+        "responses": {
+          "200": { "description": "Current revision as a JSON number", "content": { "application/json": { "schema": { "type": "integer", "format": "int64", "minimum": 0 }, "example": 1 } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      }
+    },
+    "/v1/users/{objectId}": {
+      "get": {
+        "tags": ["Administration"],
+        "summary": "Get a user by Entra oid",
+        "operationId": "getManagedUser",
+        "security": [{ "AdministratorApiKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ObjectId" }],
+        "responses": {
+          "200": { "description": "User found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserIdentityResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "No user has this oid" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      }
+    },
+    "/v1/users/{objectId}/roles": {
+      "put": {
+        "tags": ["Administration"],
+        "summary": "Replace all of a user's application roles",
+        "description": "The supplied array replaces the complete role set. An empty array removes every role. Role names are trimmed and normalized to lowercase. A successful write increments the shared cache revision.",
+        "operationId": "replaceManagedUserRoles",
+        "security": [{ "AdministratorApiKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ObjectId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReplaceRolesRequest" }, "example": { "roles": ["reviewer", "manager"] } } } },
+        "responses": {
+          "204": { "description": "Roles replaced; no response body" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "No user has this oid" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      }
+    },
+    "/v1/users/{objectId}/active": {
+      "put": {
+        "tags": ["Administration"],
+        "summary": "Activate or deactivate a user",
+        "description": "A successful write increments the shared cache revision. Inactive users are denied by the consuming middleware.",
+        "operationId": "setManagedUserActiveStatus",
+        "security": [{ "AdministratorApiKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/ObjectId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SetActiveRequest" }, "example": { "isActive": false } } } },
+        "responses": {
+          "204": { "description": "Status changed; no response body" },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "No user has this oid" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ClientApiKey": { "type": "apiKey", "in": "header", "name": "X-User-Management-Key", "description": "Credential configured under UserManagementKeys:Clients. Use for resolve and revision only." },
+      "AdministratorApiKey": { "type": "apiKey", "in": "header", "name": "X-User-Management-Key", "description": "Credential configured under UserManagementKeys:Administrators. Use for user read and writes only." }
+    },
+    "parameters": {
+      "ObjectId": { "name": "objectId", "in": "path", "required": true, "description": "Entra oid; current deployment assumes one Entra tenant.", "schema": { "type": "string", "format": "uuid" }, "example": "9155ff4d-2708-4770-b87e-e238645ec5df" }
+    },
+    "schemas": {
+      "HealthResponse": { "type": "object", "required": ["status"], "properties": { "status": { "type": "string", "example": "ok" } } },
+      "UserIdentityRequest": {
+        "type": "object",
+        "required": ["objectId"],
+        "properties": {
+          "objectId": { "type": "string", "format": "uuid", "description": "Validated Entra JWT oid from the consuming service. The User Management service does not validate that JWT." },
+          "email": { "type": "string", "nullable": true, "maxLength": 320, "description": "Optional profile value; never used to match a user." },
+          "displayName": { "type": "string", "nullable": true, "maxLength": 200 }
+        }
+      },
+      "UserIdentityResponse": {
+        "type": "object",
+        "required": ["userId", "isActive", "roles"],
+        "properties": {
+          "userId": { "type": "string", "format": "uuid", "description": "Internal User Management identifier." },
+          "isActive": { "type": "boolean" },
+          "roles": { "type": "array", "items": { "type": "string" }, "description": "Application roles. Newly created users receive reviewer." }
+        }
+      },
+      "ReplaceRolesRequest": {
+        "type": "object",
+        "required": ["roles"],
+        "properties": { "roles": { "type": "array", "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 64 }, "description": "Complete replacement. Empty array removes all roles." } }
+      },
+      "SetActiveRequest": { "type": "object", "required": ["isActive"], "properties": { "isActive": { "type": "boolean" } } },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "nullable": true },
+          "title": { "type": "string", "nullable": true },
+          "status": { "type": "integer", "format": "int32", "nullable": true },
+          "detail": { "type": "string", "nullable": true },
+          "instance": { "type": "string", "nullable": true }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": { "description": "Invalid request or oid", "content": { "application/problem+json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } }, "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } } },
+      "Unauthorized": { "description": "Missing or wrong credential for this operation" },
+      "ServiceError": { "description": "Service or database error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetails" } } } }
+    }
+  }
+}

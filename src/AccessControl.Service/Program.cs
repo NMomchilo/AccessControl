@@ -1,6 +1,8 @@
 using AccessControl.Application;
 using AccessControl.Infrastructure;
+using AccessControl.Infrastructure.Database;
 using AccessControl.Service.Security;
+using Microsoft.EntityFrameworkCore;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.Services.AddApplication();
@@ -31,6 +33,16 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapControllers();
+if (app.Environment.IsDevelopment() &&
+    app.Configuration.GetValue<bool>("AccessControlDatabase:ApplyMigrationsOnStartup"))
+{
+    using IServiceScope scope = app.Services.CreateScope();
+    AccessControlDbContext db = scope.ServiceProvider.GetRequiredService<AccessControlDbContext>();
+    app.Logger.LogInformation("Applying Access Control database migrations for local Development");
+    db.Database.Migrate();
+    app.Logger.LogInformation("Access Control database migrations are current");
+}
+
 app.Run();
 
 public partial class Program;
