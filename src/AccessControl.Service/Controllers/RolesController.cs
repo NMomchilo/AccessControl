@@ -1,6 +1,7 @@
 using AccessControl.Application;
 using AccessControl.Contracts;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace AccessControl.Service.Controllers;
 
@@ -10,9 +11,10 @@ public sealed class RolesController(AuthorizationService authorizationService, I
 {
     [HttpGet]
     [ProducesResponseType(typeof(RoleEntitlementsRequest), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAsync([FromQuery] string tenantId, [FromQuery] Guid roleId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetAsync([FromQuery] string tenantId, [FromQuery, BindRequired] Guid unitOrganizationId,
+        [FromQuery] Guid roleId, CancellationToken cancellationToken)
     {
-        RoleEntitlementsRequest result = await authorizationService.GetRoleEntitlementsAsync(tenantId, roleId, cancellationToken);
+        RoleEntitlementsRequest result = await authorizationService.GetRoleEntitlementsAsync(tenantId, unitOrganizationId, roleId, cancellationToken);
         logger.LogDebug("Role entitlements API read completed; count {Count}, trace {TraceId}", result.Entitlements.Count, HttpContext.TraceIdentifier);
         return Ok(result);
     }

@@ -14,6 +14,7 @@ namespace AccessControl.Tests;
 public sealed class UserManagementAccessFlowTests
 {
     private static readonly Guid Reviewer = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid Organization = Guid.Parse("33333333-3333-3333-3333-333333333333");
     [Fact]
     public async Task InvokeAsync_ResolvedReviewer_ReachesControllerOnlyAfterPermitAsync()
     {
@@ -37,6 +38,9 @@ public sealed class UserManagementAccessFlowTests
             [new Claim("oid", "9155ff4d-2708-4770-b87e-e238645ec5df"),
                 new Claim("scp", "user_impersonation"), new Claim(ClaimTypes.Role, "untrusted-other-role"),
                 new Claim(UserManagementClaims.RoleId, Guid.NewGuid().ToString("D"))], "jwt"));
+        context.User.AddIdentity(new ClaimsIdentity(
+            [new Claim("unit_organization_id", Organization.ToString("D")),
+                new Claim("unit_organization_name", "Customer Operations")], "Gateway"));
         context.SetEndpoint(new RouteEndpointBuilder(_ => Task.CompletedTask,
             RoutePatternFactory.Parse("/customers/{id}"), 0).Build());
 
@@ -44,13 +48,15 @@ public sealed class UserManagementAccessFlowTests
 
         Assert.True(controllerRan);
         Assert.Equal([Reviewer], decisionClient.Request?.RoleIds);
+        Assert.Equal(Organization, decisionClient.Request?.UnitOrganizationId);
         Assert.Equal("9155ff4d-2708-4770-b87e-e238645ec5df", decisionClient.Request?.SubjectId);
     }
 
     private sealed class ReviewerClient : IUserManagementClient
     {
         public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), request.TenantId, true,
+            Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), request.TenantId,
+                request.UnitOrganizationId, request.UnitOrganizationName, true,
                 [new UserRoleInfo(Reviewer, "reviewer", "Reviewer")]));
     }
 

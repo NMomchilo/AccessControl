@@ -7,38 +7,60 @@ namespace UserManagement.Infrastructure.Database;
 
 public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStore> logger) : IUserStore
 {
-    public async Task<ManagedUser> ResolveAsync(string tenantId, string objectId, string? email, string? displayName,
+    public async Task<ManagedUser> ResolveAsync(string tenantId, Guid unitOrganizationId, string unitOrganizationName,
+        string objectId, string? email, string? displayName,
         CancellationToken cancellationToken)
     {
-        UserEntity? user = await FindUserAsync(tenantId, objectId, cancellationToken);
-        if (user is null)
+        UnitOrganizationEntity organization = await EnsureOrganizationAsync(tenantId, unitOrganizationId,
+            unitOrganizationName, cancellationToken);
+        UserEntity? user = await FindUserAsync(tenantId, unitOrganizationId, objectId, cancellationToken);
+        if (user is null || !user.Organizations.Any(value => value.UnitOrganizationId == unitOrganizationId))
         {
-            RoleEntity reviewer = await EnsureReviewerAsync(tenantId, cancellationToken);
-            user = new UserEntity
+            RoleEntity reviewer = await EnsureReviewerAsync(tenantId, unitOrganizationId, cancellationToken);
+            // A concurrent Reviewer insert clears tracking. Reload an existing user before adding membership.
+            if (user is not null && db.Entry(user).State == EntityState.Detached)
+            {
+                user = await FindUserAsync(tenantId, unitOrganizationId, objectId, cancellationToken);
+                if (user?.Organizations.Any(value => value.UnitOrganizationId == unitOrganizationId) == true)
+                    return Map(user, organization);
+            }
+            user ??= new UserEntity
             {
                 Id = Guid.NewGuid(), TenantId = tenantId, ObjectId = objectId, Email = email,
-                DisplayName = displayName ?? email ?? "Unknown user", CreatedAt = DateTimeOffset.UtcNow,
-                Roles = [new UserRoleEntity { TenantId = tenantId, RoleId = reviewer.Id, Role = reviewer }]
+                DisplayName = displayName ?? email ?? "Unknown user", CreatedAt = DateTimeOffset.UtcNow
             };
-            db.Users.Add(user);
+            UnitOrganizationMembershipEntity membership = new()
+            {
+                TenantId = tenantId, UserId = user.Id, UnitOrganizationId = unitOrganizationId,
+                Roles = [new UserRoleEntity
+                {
+                    TenantId = tenantId, UserId = user.Id, UnitOrganizationId = unitOrganizationId,
+                    RoleId = reviewer.Id, Role = reviewer
+                }]
+            };
+            user.Organizations.Add(membership);
+            if (db.Entry(user).State == EntityState.Detached) db.Users.Add(user);
             try
             {
                 await db.SaveChangesAsync(cancellationToken);
-                logger.LogInformation("Provisioned user {UserId} in tenant {TenantId} with Reviewer role {RoleId}",
-                    user.Id, tenantId, reviewer.Id);
-                return Map(user);
+                logger.LogInformation("Provisioned user {UserId} in tenant {TenantId}, organization {UnitOrganizationId}",
+                    user.Id, tenantId, unitOrganizationId);
+                db.ChangeTracker.Clear();
+                user = await FindUserAsync(tenantId, unitOrganizationId, objectId, cancellationToken)
+                    ?? throw new InvalidOperationException("Provisioned user could not be reloaded.");
+                return Map(user, organization);
             }
             catch (DbUpdateException)
             {
                 db.ChangeTracker.Clear();
-                user = await FindUserAsync(tenantId, objectId, cancellationToken);
-                if (user is null)
+                user = await FindUserAsync(tenantId, unitOrganizationId, objectId, cancellationToken);
+                if (user is null || !user.Organizations.Any(value => value.UnitOrganizationId == unitOrganizationId))
                 {
                     throw;
                 }
 
                 logger.LogInformation("Concurrent user provisioning resolved for {UserId}", user.Id);
-                return Map(user);
+                return Map(user, organization);
             }
         }
 
@@ -58,48 +80,83 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
             logger.LogDebug("Updated profile for user {UserId}", user.Id);
         }
 
-        return Map(user);
+        return Map(user, organization);
     }
 
-    public async Task<ManagedUser?> GetAsync(string tenantId, string objectId, CancellationToken cancellationToken)
-    {
-        UserEntity? user = await db.Users.AsNoTracking().Include(value => value.Roles)
-            .ThenInclude(value => value.Role)
-            .SingleOrDefaultAsync(value => value.TenantId == tenantId && value.ObjectId == objectId, cancellationToken);
-        return user is null ? null : Map(user);
-    }
-
-    public async Task<bool> ReplaceRolesAsync(string tenantId, string objectId, IReadOnlyList<Guid> roleIds,
+    public async Task<ManagedUser?> GetAsync(string tenantId, Guid unitOrganizationId, string objectId,
         CancellationToken cancellationToken)
     {
-        UserEntity? user = await db.Users.SingleOrDefaultAsync(value =>
+        UserEntity? user = await db.Users.AsNoTracking().AsSplitQuery()
+            .Include(value => value.Organizations.Where(membership =>
+                membership.UnitOrganizationId == unitOrganizationId))
+            .Include(value => value.Roles.Where(role => role.UnitOrganizationId == unitOrganizationId))
+            .ThenInclude(value => value.Role)
+            .SingleOrDefaultAsync(value => value.TenantId == tenantId && value.ObjectId == objectId, cancellationToken);
+        if (user is null || !user.Organizations.Any(value => value.UnitOrganizationId == unitOrganizationId))
+            return null;
+        UnitOrganizationEntity? organization = await db.UnitOrganizations.AsNoTracking()
+            .SingleOrDefaultAsync(value => value.TenantId == tenantId && value.Id == unitOrganizationId &&
+                !value.IsDeleted,
+                cancellationToken);
+        return organization is null ? null : Map(user, organization);
+    }
+
+    public async Task<PageSlice<ManagedUserSummary>> GetUsersAsync(string tenantId, Guid? unitOrganizationId,
+        int offset, int pageSize, CancellationToken cancellationToken)
+    {
+        IQueryable<UserEntity> query = db.Users.AsNoTracking().Where(user => user.TenantId == tenantId);
+        if (unitOrganizationId.HasValue)
+        {
+            Guid organizationId = unitOrganizationId.Value;
+            query = query.Where(user => user.Organizations.Any(membership =>
+                membership.UnitOrganizationId == organizationId));
+        }
+        int totalCount = await query.CountAsync(cancellationToken);
+        ManagedUserSummary[] items = await query.OrderBy(user => user.ObjectId).ThenBy(user => user.Id)
+            .Skip(offset).Take(pageSize)
+            .Select(user => new ManagedUserSummary(user.Id, user.ObjectId, user.DisplayName,
+                user.Email, user.IsActive)).ToArrayAsync(cancellationToken);
+        return new PageSlice<ManagedUserSummary>(items, totalCount);
+    }
+
+    public async Task<bool> ReplaceRolesAsync(string tenantId, Guid unitOrganizationId, string objectId,
+        IReadOnlyList<Guid> roleIds,
+        CancellationToken cancellationToken)
+    {
+        UserEntity? user = await db.Users.AsNoTracking().SingleOrDefaultAsync(value =>
             value.TenantId == tenantId && value.ObjectId == objectId, cancellationToken);
-        if (user is null)
+        if (user is null || !await db.UnitOrganizations.AnyAsync(value => value.TenantId == tenantId &&
+                value.Id == unitOrganizationId && !value.IsDeleted, cancellationToken) ||
+            !await db.UnitOrganizationMemberships.AnyAsync(value =>
+                value.TenantId == tenantId && value.UserId == user.Id &&
+                value.UnitOrganizationId == unitOrganizationId, cancellationToken))
         {
             return false;
         }
 
         Guid[] distinct = roleIds.Distinct().ToArray();
-        int validCount = await db.Roles.CountAsync(value => value.TenantId == tenantId && distinct.Contains(value.Id), cancellationToken);
+        int validCount = await db.Roles.CountAsync(value => value.TenantId == tenantId &&
+            value.UnitOrganizationId == unitOrganizationId && distinct.Contains(value.Id), cancellationToken);
         if (validCount != distinct.Length)
         {
-            throw new ArgumentException("Every role ID must exist in the user's tenant.", nameof(roleIds));
+            throw new ArgumentException("Every role ID must exist in the user's organization.", nameof(roleIds));
         }
 
         // ExecuteDelete bypasses change tracking; detach any roles loaded by an earlier resolution.
         db.ChangeTracker.Clear();
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        await db.UserRoles.Where(value => value.UserId == user.Id).ExecuteDeleteAsync(cancellationToken);
+        await db.UserRoles.Where(value => value.UserId == user.Id &&
+            value.UnitOrganizationId == unitOrganizationId).ExecuteDeleteAsync(cancellationToken);
         db.UserRoles.AddRange(distinct.Select(roleId => new UserRoleEntity
         {
-            TenantId = tenantId, UserId = user.Id, RoleId = roleId
+            TenantId = tenantId, UserId = user.Id, UnitOrganizationId = unitOrganizationId, RoleId = roleId
         }));
         await db.SaveChangesAsync(cancellationToken);
         await IncrementRevisionAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         db.ChangeTracker.Clear();
-        logger.LogInformation("Replaced roles for user {UserId} in tenant {TenantId}; count {RoleCount}",
-            user.Id, tenantId, distinct.Length);
+        logger.LogInformation("Replaced roles for user {UserId} in organization {UnitOrganizationId}; count {RoleCount}",
+            user.Id, unitOrganizationId, distinct.Length);
         return true;
     }
 
@@ -122,15 +179,23 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
         return true;
     }
 
-    public async Task<ManagedRole> CreateRoleAsync(string tenantId, string code, string displayName,
+    public async Task<ManagedRole> CreateRoleAsync(string tenantId, Guid unitOrganizationId, string code, string displayName,
         CancellationToken cancellationToken)
     {
-        if (await db.Roles.AnyAsync(value => value.TenantId == tenantId && value.Code == code, cancellationToken))
+        if (!await db.UnitOrganizations.AnyAsync(value => value.TenantId == tenantId &&
+                value.Id == unitOrganizationId && !value.IsDeleted, cancellationToken))
+            throw new ArgumentException("Unit organization does not exist in this tenant.", nameof(unitOrganizationId));
+        if (await db.Roles.AnyAsync(value => value.TenantId == tenantId &&
+                value.UnitOrganizationId == unitOrganizationId && value.Code == code, cancellationToken))
         {
-            throw new ArgumentException("Role code already exists in this tenant.", nameof(code));
+            throw new ArgumentException("Role code already exists in this organization.", nameof(code));
         }
 
-        RoleEntity role = new() { Id = Guid.NewGuid(), TenantId = tenantId, Code = code, DisplayName = displayName };
+        RoleEntity role = new()
+        {
+            Id = Guid.NewGuid(), TenantId = tenantId, UnitOrganizationId = unitOrganizationId,
+            Code = code, DisplayName = displayName
+        };
         db.Roles.Add(role);
         try
         {
@@ -139,33 +204,182 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
         catch (DbUpdateException)
         {
             db.ChangeTracker.Clear();
-            if (await db.Roles.AnyAsync(value => value.TenantId == tenantId && value.Code == code, cancellationToken))
+            if (await db.Roles.AnyAsync(value => value.TenantId == tenantId &&
+                    value.UnitOrganizationId == unitOrganizationId && value.Code == code, cancellationToken))
             {
-                throw new ArgumentException("Role code already exists in this tenant.", nameof(code));
+                throw new ArgumentException("Role code already exists in this organization.", nameof(code));
             }
             throw;
         }
-        logger.LogInformation("Created role {RoleId} in tenant {TenantId}", role.Id, tenantId);
+        logger.LogInformation("Created role {RoleId} in organization {UnitOrganizationId}", role.Id, unitOrganizationId);
         return Map(role);
     }
 
-    public async Task<IReadOnlyList<ManagedRole>> GetRolesAsync(string tenantId, CancellationToken cancellationToken) =>
-        await db.Roles.AsNoTracking().Where(value => value.TenantId == tenantId)
-            .OrderBy(value => value.Code).Select(value => new ManagedRole(value.Id, value.TenantId,
-                value.Code, value.DisplayName)).ToArrayAsync(cancellationToken);
+    public async Task<PageSlice<ManagedRole>> GetRolesPageAsync(string tenantId, Guid? unitOrganizationId,
+        int offset, int pageSize, CancellationToken cancellationToken)
+    {
+        IQueryable<RoleEntity> query = db.Roles.AsNoTracking().Where(role => role.TenantId == tenantId &&
+            !role.UnitOrganization.IsDeleted);
+        if (unitOrganizationId.HasValue)
+        {
+            Guid organizationId = unitOrganizationId.Value;
+            query = query.Where(role => role.UnitOrganizationId == organizationId);
+        }
+        int totalCount = await query.CountAsync(cancellationToken);
+        ManagedRole[] items = await query.OrderBy(role => role.UnitOrganizationId)
+            .ThenBy(role => role.Code).ThenBy(role => role.Id).Skip(offset).Take(pageSize)
+            .Select(role => new ManagedRole(role.Id, role.TenantId, role.UnitOrganizationId,
+                role.Code, role.DisplayName)).ToArrayAsync(cancellationToken);
+        return new PageSlice<ManagedRole>(items, totalCount);
+    }
+
+    public async Task<ManagedUnitOrganization> CreateUnitOrganizationAsync(string tenantId, Guid id, string name,
+        CancellationToken cancellationToken)
+    {
+        if (await db.UnitOrganizations.AnyAsync(value => value.Id == id ||
+                (value.TenantId == tenantId && !value.IsDeleted && value.Name == name), cancellationToken))
+            throw new UnitOrganizationConflictException("Organization ID or name already exists.");
+        UnitOrganizationEntity organization = new() { Id = id, TenantId = tenantId, Name = name };
+        db.UnitOrganizations.Add(organization);
+        try
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await IncrementRevisionAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            db.ChangeTracker.Clear();
+            throw new UnitOrganizationConflictException("Organization ID or name already exists.");
+        }
+        logger.LogInformation("Created organization {UnitOrganizationId} in tenant {TenantId}", id, tenantId);
+        return Map(organization);
+    }
+
+    public async Task<ManagedUnitOrganization?> GetUnitOrganizationAsync(string tenantId, Guid id,
+        CancellationToken cancellationToken) =>
+        await db.UnitOrganizations.AsNoTracking().Where(value => value.TenantId == tenantId &&
+                value.Id == id && !value.IsDeleted)
+            .Select(value => new ManagedUnitOrganization(value.Id, value.TenantId, value.Name))
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<ManagedUnitOrganization>> GetUnitOrganizationsAsync(string tenantId,
+        CancellationToken cancellationToken) =>
+        await db.UnitOrganizations.AsNoTracking().Where(value => value.TenantId == tenantId && !value.IsDeleted)
+            .OrderBy(value => value.Name).Select(value => new ManagedUnitOrganization(value.Id,
+                value.TenantId, value.Name)).ToArrayAsync(cancellationToken);
+
+    public async Task<ManagedUnitOrganization?> UpdateUnitOrganizationAsync(string tenantId, Guid id, string name,
+        CancellationToken cancellationToken)
+    {
+        UnitOrganizationEntity? organization = await db.UnitOrganizations.SingleOrDefaultAsync(value =>
+            value.TenantId == tenantId && value.Id == id && !value.IsDeleted, cancellationToken);
+        if (organization is null) return null;
+        if (organization.Name == name) return Map(organization);
+        if (await db.UnitOrganizations.AnyAsync(value => value.TenantId == tenantId &&
+                value.Id != id && !value.IsDeleted && value.Name == name, cancellationToken))
+            throw new UnitOrganizationConflictException("Organization name already exists.");
+        organization.Name = name;
+        try
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await IncrementRevisionAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            db.ChangeTracker.Clear();
+            throw new UnitOrganizationConflictException("Organization name already exists.");
+        }
+        logger.LogInformation("Renamed organization {UnitOrganizationId}", id);
+        return Map(organization);
+    }
+
+    public async Task<bool> DeleteUnitOrganizationAsync(string tenantId, Guid id, CancellationToken cancellationToken)
+    {
+        UnitOrganizationEntity? organization = await db.UnitOrganizations.SingleOrDefaultAsync(value =>
+            value.TenantId == tenantId && value.Id == id, cancellationToken);
+        if (organization is null) return false;
+        if (organization.IsDeleted) return true;
+        organization.IsDeleted = true;
+        try
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            await db.SaveChangesAsync(cancellationToken);
+            await IncrementRevisionAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            db.ChangeTracker.Clear();
+            throw;
+        }
+        logger.LogInformation("Deleted organization {UnitOrganizationId}", id);
+        return true;
+    }
 
     public Task<long> GetRevisionAsync(CancellationToken cancellationToken) =>
         db.Revisions.AsNoTracking().Where(value => value.Id == 1)
             .Select(value => value.Version).SingleAsync(cancellationToken);
 
-    private Task<UserEntity?> FindUserAsync(string tenantId, string objectId, CancellationToken cancellationToken) =>
-        db.Users.Include(value => value.Roles).ThenInclude(value => value.Role)
+    private Task<UserEntity?> FindUserAsync(string tenantId, Guid unitOrganizationId, string objectId,
+        CancellationToken cancellationToken) =>
+        db.Users.AsSplitQuery()
+            .Include(value => value.Organizations.Where(membership =>
+                membership.UnitOrganizationId == unitOrganizationId))
+            .Include(value => value.Roles.Where(role => role.UnitOrganizationId == unitOrganizationId))
+            .ThenInclude(value => value.Role)
             .SingleOrDefaultAsync(value => value.TenantId == tenantId && value.ObjectId == objectId, cancellationToken);
 
-    private async Task<RoleEntity> EnsureReviewerAsync(string tenantId, CancellationToken cancellationToken)
+    private async Task<UnitOrganizationEntity> EnsureOrganizationAsync(string tenantId, Guid id, string name,
+        CancellationToken cancellationToken)
+    {
+        UnitOrganizationEntity? organization = await db.UnitOrganizations.SingleOrDefaultAsync(value =>
+            value.Id == id, cancellationToken);
+        if (organization is not null)
+        {
+            if (organization.TenantId != tenantId)
+                throw new ArgumentException("Organization belongs to a different tenant.", nameof(id));
+            if (organization.IsDeleted)
+                throw new UnitOrganizationConflictException("Organization ID was deleted and cannot be reused.");
+            return organization;
+        }
+        if (await db.UnitOrganizations.AnyAsync(value => value.TenantId == tenantId &&
+                !value.IsDeleted && value.Name == name,
+                cancellationToken))
+            throw new UnitOrganizationConflictException("Organization name already belongs to a different ID.");
+        organization = new UnitOrganizationEntity { Id = id, TenantId = tenantId, Name = name };
+        db.UnitOrganizations.Add(organization);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            logger.LogInformation("Created gateway organization {UnitOrganizationId} in tenant {TenantId}", id,
+                tenantId);
+            return organization;
+        }
+        catch (DbUpdateException)
+        {
+            db.ChangeTracker.Clear();
+            organization = await db.UnitOrganizations.SingleOrDefaultAsync(value => value.Id == id,
+                cancellationToken);
+            if (organization is not null && organization.TenantId != tenantId)
+                throw new ArgumentException("Organization belongs to a different tenant.", nameof(id));
+            if (organization is not null && organization.IsDeleted)
+                throw new UnitOrganizationConflictException("Organization ID was deleted and cannot be reused.");
+            if (organization is null)
+                throw new UnitOrganizationConflictException("Organization name already belongs to a different ID.");
+            return organization;
+        }
+    }
+
+    private async Task<RoleEntity> EnsureReviewerAsync(string tenantId, Guid organizationId,
+        CancellationToken cancellationToken)
     {
         RoleEntity? reviewer = await db.Roles.SingleOrDefaultAsync(value =>
-            value.TenantId == tenantId && value.Code == UserRoles.Reviewer, cancellationToken);
+            value.TenantId == tenantId && value.UnitOrganizationId == organizationId &&
+            value.Code == UserRoles.Reviewer, cancellationToken);
         if (reviewer is not null)
         {
             return reviewer;
@@ -173,20 +387,23 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
 
         reviewer = new RoleEntity
         {
-            Id = Guid.NewGuid(), TenantId = tenantId, Code = UserRoles.Reviewer, DisplayName = "Reviewer"
+            Id = Guid.NewGuid(), TenantId = tenantId, UnitOrganizationId = organizationId,
+            Code = UserRoles.Reviewer, DisplayName = "Reviewer"
         };
         db.Roles.Add(reviewer);
         try
         {
             await db.SaveChangesAsync(cancellationToken);
-            logger.LogInformation("Created Reviewer role {RoleId} in tenant {TenantId}", reviewer.Id, tenantId);
+            logger.LogInformation("Created Reviewer role {RoleId} in organization {UnitOrganizationId}", reviewer.Id,
+                organizationId);
             return reviewer;
         }
         catch (DbUpdateException)
         {
             db.ChangeTracker.Clear();
             reviewer = await db.Roles.SingleOrDefaultAsync(value =>
-                value.TenantId == tenantId && value.Code == UserRoles.Reviewer, cancellationToken);
+                value.TenantId == tenantId && value.UnitOrganizationId == organizationId &&
+                value.Code == UserRoles.Reviewer, cancellationToken);
             if (reviewer is null)
             {
                 throw;
@@ -206,9 +423,15 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
         }
     }
 
-    private static ManagedUser Map(UserEntity user) => new(user.Id, user.TenantId, user.ObjectId, user.Email,
-        user.DisplayName, user.IsActive, user.CreatedAt,
-        user.Roles.Select(value => Map(value.Role)).OrderBy(value => value.Code, StringComparer.Ordinal).ToArray());
+    private static ManagedUser Map(UserEntity user, UnitOrganizationEntity organization) =>
+        new(user.Id, user.TenantId, organization.Id, organization.Name, user.ObjectId, user.Email,
+            user.DisplayName, user.IsActive, user.CreatedAt,
+            user.Roles.Where(value => value.UnitOrganizationId == organization.Id)
+                .Select(value => Map(value.Role)).OrderBy(value => value.Code, StringComparer.Ordinal).ToArray());
 
-    private static ManagedRole Map(RoleEntity role) => new(role.Id, role.TenantId, role.Code, role.DisplayName);
+    private static ManagedRole Map(RoleEntity role) =>
+        new(role.Id, role.TenantId, role.UnitOrganizationId, role.Code, role.DisplayName);
+
+    private static ManagedUnitOrganization Map(UnitOrganizationEntity organization) =>
+        new(organization.Id, organization.TenantId, organization.Name);
 }

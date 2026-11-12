@@ -48,6 +48,7 @@ namespace AccessControl.Infrastructure.Database.Migrations
                     Id = table.Column<long>(type: "bigint", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Module = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     HttpMethod = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: false),
                     RouteTemplate = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: false),
@@ -65,6 +66,7 @@ namespace AccessControl.Infrastructure.Database.Migrations
                     Id = table.Column<long>(type: "bigint", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     RoleId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Entitlement = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false)
                 },
@@ -105,9 +107,9 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_EndpointPolicies_TenantId_Module_HttpMethod_RouteTemplate",
+                name: "IX_EndpointPolicies_TenantId_UnitOrganizationId_Module_HttpMethod_RouteTemplate",
                 table: "EndpointPolicies",
-                columns: new[] { "TenantId", "Module", "HttpMethod", "RouteTemplate" },
+                columns: new[] { "TenantId", "UnitOrganizationId", "Module", "HttpMethod", "RouteTemplate" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -117,9 +119,9 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_RoleEntitlements_TenantId_RoleId_Entitlement",
+                name: "IX_RoleEntitlements_TenantId_UnitOrganizationId_RoleId_Entitlement",
                 table: "RoleEntitlements",
-                columns: new[] { "TenantId", "RoleId", "Entitlement" },
+                columns: new[] { "TenantId", "UnitOrganizationId", "RoleId", "Entitlement" },
                 unique: true);
         }
 

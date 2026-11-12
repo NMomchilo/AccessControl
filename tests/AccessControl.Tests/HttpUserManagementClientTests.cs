@@ -9,6 +9,7 @@ namespace AccessControl.Tests;
 
 public sealed class HttpUserManagementClientTests
 {
+    private static readonly Guid OrganizationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     [Fact]
     public async Task ResolveAsync_SendsClientCredentialAndOidToResolutionEndpointAsync()
     {
@@ -19,7 +20,7 @@ public sealed class HttpUserManagementClientTests
                 ServiceUrl = "https://user-management.example/",
                 ApiKey = "test-client-key"
             }), NullLogger<HttpUserManagementClient>.Instance);
-        UserIdentityRequest request = new("default", "9155ff4d-2708-4770-b87e-e238645ec5df", "user@example.com", "User");
+        UserIdentityRequest request = new("default", OrganizationId, "Alpha", "9155ff4d-2708-4770-b87e-e238645ec5df", "user@example.com", "User");
 
         UserIdentityResponse response = await sut.ResolveAsync(request, CancellationToken.None);
 
@@ -49,6 +50,21 @@ public sealed class HttpUserManagementClientTests
         Assert.Equal("test-client-key", handler.Key);
     }
 
+    [Fact]
+    public async Task ResolveAsync_OrganizationConflict_ThrowsAccessExceptionAsync()
+    {
+        RecordingHandler handler = new() { ForceConflict = true };
+        HttpUserManagementClient sut = new(new SingleClientFactory(handler),
+            Options.Create(new UserManagementClientOptions
+            {
+                ServiceUrl = "https://user-management.example/", ApiKey = "test-client-key"
+            }), NullLogger<HttpUserManagementClient>.Instance);
+        UserIdentityRequest request = new("default", OrganizationId, "Alpha",
+            "9155ff4d-2708-4770-b87e-e238645ec5df", null, null);
+        await Assert.ThrowsAsync<UnitOrganizationAccessException>(() =>
+            sut.ResolveAsync(request, CancellationToken.None));
+    }
+
     private sealed class SingleClientFactory(HttpMessageHandler handler) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
@@ -60,6 +76,7 @@ public sealed class HttpUserManagementClientTests
         public string? Path { get; private set; }
         public string? Key { get; private set; }
         public string? ObjectId { get; private set; }
+        public bool ForceConflict { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -67,6 +84,7 @@ public sealed class HttpUserManagementClientTests
             Method = request.Method;
             Path = request.RequestUri?.AbsolutePath;
             Key = request.Headers.GetValues("X-User-Management-Key").Single();
+            if (ForceConflict) return new HttpResponseMessage(HttpStatusCode.Conflict);
             if (request.Method == HttpMethod.Get)
             {
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(7L) };
@@ -76,7 +94,8 @@ public sealed class HttpUserManagementClientTests
             ObjectId = body?.ObjectId;
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = JsonContent.Create(new UserIdentityResponse(Guid.NewGuid(), body!.TenantId, true,
+                Content = JsonContent.Create(new UserIdentityResponse(Guid.NewGuid(), body!.TenantId,
+                    body.UnitOrganizationId, body.UnitOrganizationName, true,
                     [new UserRoleInfo(Guid.Parse("22222222-2222-2222-2222-222222222222"), "reviewer", "Reviewer")]))
             };
         }

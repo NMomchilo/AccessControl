@@ -24,15 +24,15 @@ public sealed class AuthorizationCache : IDisposable
             options.Value.MaximumEntries, _entryLifetime);
     }
 
-    public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, string module, string httpMethod, string routeTemplate,
+    public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate,
         Func<CancellationToken, Task<EndpointPolicy?>> load, CancellationToken cancellationToken) =>
-        GetAsync(new PolicyKey(tenantId, module, httpMethod, routeTemplate), load, cancellationToken);
+        GetAsync(new PolicyKey(tenantId, unitOrganizationId, module, httpMethod, routeTemplate), load, cancellationToken);
 
-    public Task<IReadOnlySet<string>> GetGrantsAsync(string tenantId, IReadOnlyList<Guid> roleIds,
+    public Task<IReadOnlySet<string>> GetGrantsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds,
         Func<CancellationToken, Task<IReadOnlySet<string>>> load, CancellationToken cancellationToken)
     {
         string roleKey = JsonSerializer.Serialize(roleIds.Distinct().Order());
-        return GetAsync(new GrantsKey(tenantId, roleKey), load, cancellationToken);
+        return GetAsync(new GrantsKey(tenantId, unitOrganizationId, roleKey), load, cancellationToken);
     }
 
     public void InvalidateAll(string reason)
@@ -114,6 +114,6 @@ public sealed class AuthorizationCache : IDisposable
     }
 
     private sealed record CacheEntry<T>(T Value, long Generation);
-    private sealed record PolicyKey(string TenantId, string Module, string HttpMethod, string RouteTemplate);
-    private sealed record GrantsKey(string TenantId, string Roles);
+    private sealed record PolicyKey(string TenantId, Guid UnitOrganizationId, string Module, string HttpMethod, string RouteTemplate);
+    private sealed record GrantsKey(string TenantId, Guid UnitOrganizationId, string Roles);
 }

@@ -5,11 +5,14 @@
     "expectedPermit": true,
     "request": {
       "subjectId": "benchmark-user",
-      "roleIds": ["10954aa4-7532-80de-a80e-a7be3ad4c991"],
+      "roleIds": [
+        "10954aa4-7532-80de-a80e-a7be3ad4c991"
+      ],
       "module": "benchmark",
       "httpMethod": "GET",
       "routeTemplate": "/benchmark/{id}",
-      "tenantId": "benchmark-tenant"
+      "tenantId": "benchmark-tenant",
+      "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
     }
   },
   {
@@ -18,11 +21,14 @@
     "expectedPermit": true,
     "request": {
       "subjectId": "benchmark-user",
-      "roleIds": ["3113e159-4fc2-46cc-c3f5-9a467df570ce"],
+      "roleIds": [
+        "3113e159-4fc2-46cc-c3f5-9a467df570ce"
+      ],
       "module": "smoke",
       "httpMethod": "GET",
       "routeTemplate": "/protected/{id}",
-      "tenantId": "docker-revocation-test"
+      "tenantId": "docker-revocation-test",
+      "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
     }
   },
   {
@@ -35,7 +41,8 @@
       "module": "smoke",
       "httpMethod": "GET",
       "routeTemplate": "/public",
-      "tenantId": "docker-revocation-test"
+      "tenantId": "docker-revocation-test",
+      "unitOrganizationId": "00000000-0000-0000-0000-000000000000"
     }
   },
   {
@@ -44,11 +51,14 @@
     "expectedPermit": true,
     "request": {
       "subjectId": "benchmark-user",
-      "roleIds": ["b78650b4-c248-cab1-3d80-9a7c0dad7059"],
+      "roleIds": [
+        "b78650b4-c248-cab1-3d80-9a7c0dad7059"
+      ],
       "module": "integration",
       "httpMethod": "GET",
       "routeTemplate": "/integration/{id}",
-      "tenantId": "default"
+      "tenantId": "default",
+      "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
     }
   },
   {
@@ -57,11 +67,14 @@
     "expectedPermit": false,
     "request": {
       "subjectId": "benchmark-user",
-      "roleIds": ["fff25fa8-befc-828b-24af-216687b2f01b"],
+      "roleIds": [
+        "fff25fa8-befc-828b-24af-216687b2f01b"
+      ],
       "module": "integration",
       "httpMethod": "GET",
       "routeTemplate": "/integration/{id}",
-      "tenantId": "default"
+      "tenantId": "default",
+      "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
     }
   }
 ]

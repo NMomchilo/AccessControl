@@ -16,6 +16,9 @@ public static class UserManagementExtensions
                 !string.IsNullOrWhiteSpace(options.TenantClaimType) &&
                 !string.IsNullOrWhiteSpace(options.DefaultTenantId) &&
                 options.DefaultTenantId.Length <= 128 &&
+                !string.IsNullOrWhiteSpace(options.GatewayIdentityAuthenticationType) &&
+                !string.IsNullOrWhiteSpace(options.UnitOrganizationIdClaimType) &&
+                !string.IsNullOrWhiteSpace(options.UnitOrganizationNameClaimType) &&
                 !string.IsNullOrWhiteSpace(options.RequiredDelegatedScope) &&
                 !options.RequiredDelegatedScope.Contains(' ') && options.TimeoutSeconds > 0 &&
                 options.MaximumCachedUsers > 0 && options.CacheLifetime > TimeSpan.Zero &&

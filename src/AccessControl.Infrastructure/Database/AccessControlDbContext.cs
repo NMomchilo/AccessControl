@@ -30,8 +30,9 @@ public sealed class AccessControlDbContext(DbContextOptions<AccessControlDbConte
             entity.HasKey(x => x.Id);
             entity.Property(x => x.TenantId).HasMaxLength(128).IsRequired();
             entity.Property(x => x.RoleId).IsRequired();
+            entity.Property(x => x.UnitOrganizationId).IsRequired();
             entity.Property(x => x.Entitlement).HasMaxLength(128).IsRequired();
-            entity.HasIndex(x => new { x.TenantId, x.RoleId, x.Entitlement }).IsUnique();
+            entity.HasIndex(x => new { x.TenantId, x.UnitOrganizationId, x.RoleId, x.Entitlement }).IsUnique();
         });
 
         modelBuilder.Entity<EndpointPolicyEntity>(entity =>
@@ -39,10 +40,11 @@ public sealed class AccessControlDbContext(DbContextOptions<AccessControlDbConte
             entity.ToTable("EndpointPolicies");
             entity.HasKey(x => x.Id);
             entity.Property(x => x.TenantId).HasMaxLength(128).IsRequired();
+            entity.Property(x => x.UnitOrganizationId).IsRequired();
             entity.Property(x => x.Module).HasMaxLength(128).IsRequired();
             entity.Property(x => x.HttpMethod).HasMaxLength(16).IsRequired();
             entity.Property(x => x.RouteTemplate).HasMaxLength(512).IsRequired();
-            entity.HasIndex(x => new { x.TenantId, x.Module, x.HttpMethod, x.RouteTemplate }).IsUnique();
+            entity.HasIndex(x => new { x.TenantId, x.UnitOrganizationId, x.Module, x.HttpMethod, x.RouteTemplate }).IsUnique();
             entity.HasMany(x => x.RequiredEntitlements).WithOne(x => x.EndpointPolicy)
                 .HasForeignKey(x => x.EndpointPolicyId).OnDelete(DeleteBehavior.Cascade);
         });

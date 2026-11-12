@@ -5,11 +5,14 @@
     "expectedPermit": true,
     "request": {
       "subjectId": "benchmark-user",
-      "roleIds": ["c4227c8a-16ef-eb3c-aedb-8197bf7f39c2"],
+      "roleIds": [
+        "c4227c8a-16ef-eb3c-aedb-8197bf7f39c2"
+      ],
       "module": "customers",
       "httpMethod": "GET",
       "routeTemplate": "/customers/{id}",
-      "tenantId": "default"
+      "tenantId": "default",
+      "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
     }
   }
 ]

@@ -10,6 +10,34 @@ public sealed class AuthorizationCacheTests
 {
     private static readonly Guid Advisor = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid Admin = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid Organization = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static readonly Guid OtherOrganization = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+
+    [Fact]
+    public async Task OrganizationScopeSeparatesPolicyAndGrantCacheKeysAsync()
+    {
+        using AuthorizationCache cache = CreateCache();
+        int policyLoads = 0;
+        int grantLoads = 0;
+        async Task<EndpointPolicy?> LoadPolicy(CancellationToken _)
+        {
+            policyLoads++;
+            return await Task.FromResult<EndpointPolicy?>(null);
+        }
+        async Task<IReadOnlySet<string>> LoadGrants(CancellationToken _)
+        {
+            grantLoads++;
+            return await Task.FromResult<IReadOnlySet<string>>(new HashSet<string>());
+        }
+
+        await cache.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", LoadPolicy, CancellationToken.None);
+        await cache.GetPolicyAsync("tenant", OtherOrganization, "customers", "GET", "/customers/{id}", LoadPolicy, CancellationToken.None);
+        await cache.GetGrantsAsync("tenant", Organization, [Advisor], LoadGrants, CancellationToken.None);
+        await cache.GetGrantsAsync("tenant", OtherOrganization, [Advisor], LoadGrants, CancellationToken.None);
+
+        Assert.Equal(2, policyLoads);
+        Assert.Equal(2, grantLoads);
+    }
     [Fact]
     public async Task ConcurrentMisses_UseOneDatabaseLoadAsync()
     {
@@ -19,11 +47,11 @@ public sealed class AuthorizationCacheTests
         {
             Interlocked.Increment(ref reads);
             await Task.Delay(30, cancellationToken);
-            return new EndpointPolicy("tenant", "customers", "GET", "/customers/{id}", false, ["customers.view"]);
+            return new EndpointPolicy("tenant", "customers", "GET", "/customers/{id}", false, ["customers.view"], Organization);
         }
 
         Task<EndpointPolicy?>[] tasks = Enumerable.Range(0, 20).Select(_ =>
-            cache.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}", Load, CancellationToken.None)).ToArray();
+            cache.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", Load, CancellationToken.None)).ToArray();
         await Task.WhenAll(tasks);
 
         Assert.Equal(1, reads);
@@ -34,15 +62,15 @@ public sealed class AuthorizationCacheTests
     {
         using AuthorizationCache cache = CreateCache();
         TaskCompletionSource<EndpointPolicy?> pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        EndpointPolicy oldPolicy = new("tenant", "customers", "GET", "/customers/{id}", false, ["customers.view"]);
+        EndpointPolicy oldPolicy = new("tenant", "customers", "GET", "/customers/{id}", false, ["customers.view"], Organization);
         EndpointPolicy newPolicy = oldPolicy with { IsPublic = true, RequiredEntitlements = [] };
-        Task<EndpointPolicy?> first = cache.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}",
+        Task<EndpointPolicy?> first = cache.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}",
             _ => pending.Task, CancellationToken.None);
         cache.InvalidateAll("test update");
         pending.SetResult(oldPolicy);
         await first;
 
-        EndpointPolicy? current = await cache.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}",
+        EndpointPolicy? current = await cache.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}",
             _ => Task.FromResult<EndpointPolicy?>(newPolicy), CancellationToken.None);
         Assert.True(current?.IsPublic);
     }
@@ -54,10 +82,10 @@ public sealed class AuthorizationCacheTests
         using AuthorizationCache cache = CreateCache();
         CachingAuthorizationStore store = Wrap(source, cache);
 
-        await store.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
-        await store.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
-        await store.GetEntitlementsAsync("tenant", [Advisor, Admin], CancellationToken.None);
-        await store.GetEntitlementsAsync("tenant", [Admin, Advisor], CancellationToken.None);
+        await store.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
+        await store.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
+        await store.GetEntitlementsAsync("tenant", Organization, [Advisor, Admin], CancellationToken.None);
+        await store.GetEntitlementsAsync("tenant", Organization, [Admin, Advisor], CancellationToken.None);
 
         Assert.Equal(1, source.PolicyReads);
         Assert.Equal(1, source.GrantReads);
@@ -69,12 +97,26 @@ public sealed class AuthorizationCacheTests
         FakeStore source = new();
         using AuthorizationCache cache = CreateCache();
         CachingAuthorizationStore store = Wrap(source, cache);
-        await store.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
+        await store.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
 
         await store.UpsertPolicyAsync(source.Policy with { IsPublic = true, RequiredEntitlements = [] }, CancellationToken.None);
-        EndpointPolicy? updated = await store.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
+        EndpointPolicy? updated = await store.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
 
         Assert.True(updated?.IsPublic);
+        Assert.Equal(2, source.PolicyReads);
+    }
+
+    [Fact]
+    public async Task PolicyDelete_InvalidatesCachedPermitAsync()
+    {
+        FakeStore source = new();
+        using AuthorizationCache cache = CreateCache();
+        CachingAuthorizationStore store = Wrap(source, cache);
+        Assert.NotNull(await store.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None));
+
+        await store.DeletePolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
+
+        Assert.Null(await store.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None));
         Assert.Equal(2, source.PolicyReads);
     }
 
@@ -84,10 +126,10 @@ public sealed class AuthorizationCacheTests
         FakeStore source = new();
         using AuthorizationCache cache = CreateCache();
         CachingAuthorizationStore store = Wrap(source, cache);
-        await store.GetEntitlementsAsync("tenant", [Advisor], CancellationToken.None);
+        await store.GetEntitlementsAsync("tenant", Organization, [Advisor], CancellationToken.None);
 
-        await store.ReplaceRoleEntitlementsAsync("tenant", Advisor, [], CancellationToken.None);
-        IReadOnlySet<string> updated = await store.GetEntitlementsAsync("tenant", [Advisor], CancellationToken.None);
+        await store.ReplaceRoleEntitlementsAsync("tenant", Organization, Advisor, [], CancellationToken.None);
+        IReadOnlySet<string> updated = await store.GetEntitlementsAsync("tenant", Organization, [Advisor], CancellationToken.None);
 
         Assert.Empty(updated);
         Assert.Equal(2, source.GrantReads);
@@ -102,13 +144,13 @@ public sealed class AuthorizationCacheTests
         CachingAuthorizationStore writer = Wrap(source, first);
         CachingAuthorizationStore reader = Wrap(source, second);
         second.ObserveRevision(0);
-        await reader.GetEntitlementsAsync("tenant", [Advisor], CancellationToken.None);
+        await reader.GetEntitlementsAsync("tenant", Organization, [Advisor], CancellationToken.None);
 
-        await writer.ReplaceRoleEntitlementsAsync("tenant", Advisor, [], CancellationToken.None);
-        Assert.Contains("customers.view", await reader.GetEntitlementsAsync("tenant", [Advisor], CancellationToken.None));
+        await writer.ReplaceRoleEntitlementsAsync("tenant", Organization, Advisor, [], CancellationToken.None);
+        Assert.Contains("customers.view", await reader.GetEntitlementsAsync("tenant", Organization, [Advisor], CancellationToken.None));
         second.ObserveRevision(1);
 
-        Assert.Empty(await reader.GetEntitlementsAsync("tenant", [Advisor], CancellationToken.None));
+        Assert.Empty(await reader.GetEntitlementsAsync("tenant", Organization, [Advisor], CancellationToken.None));
     }
 
     [Fact]
@@ -117,13 +159,13 @@ public sealed class AuthorizationCacheTests
         FakeStore source = new();
         using AuthorizationCache cache = CreateCache(maxEntries: 1, lifetime: TimeSpan.FromMilliseconds(30));
         CachingAuthorizationStore store = Wrap(source, cache);
-        await store.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
-        await store.GetPolicyAsync("another-tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
-        await store.GetPolicyAsync("another-tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
+        await store.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
+        await store.GetPolicyAsync("another-tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
+        await store.GetPolicyAsync("another-tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
         Assert.Equal(3, source.PolicyReads);
 
         await Task.Delay(50);
-        await store.GetPolicyAsync("tenant", "customers", "GET", "/customers/{id}", CancellationToken.None);
+        await store.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
         Assert.Equal(4, source.PolicyReads);
     }
 
@@ -140,19 +182,20 @@ public sealed class AuthorizationCacheTests
     private sealed class FakeStore : IAuthorizationStore
     {
         public EndpointPolicy Policy { get; private set; } = new("tenant", "customers", "GET", "/customers/{id}",
-            false, ["customers.view"]);
+            false, ["customers.view"], Organization);
         public IReadOnlySet<string> Grants { get; private set; } = new HashSet<string> { "customers.view" };
         public int PolicyReads { get; private set; }
         public int GrantReads { get; private set; }
+        public bool PolicyDeleted { get; private set; }
 
-        public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, string module, string httpMethod,
+        public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod,
             string routeTemplate, CancellationToken cancellationToken)
         {
             PolicyReads++;
-            return Task.FromResult<EndpointPolicy?>(Policy.TenantId == tenantId ? Policy : null);
+            return Task.FromResult<EndpointPolicy?>(!PolicyDeleted && Policy.TenantId == tenantId ? Policy : null);
         }
 
-        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<Guid> roleIds,
+        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds,
             CancellationToken cancellationToken)
         {
             GrantReads++;
@@ -165,10 +208,14 @@ public sealed class AuthorizationCacheTests
             return Task.CompletedTask;
         }
 
-        public Task DeletePolicyAsync(string tenantId, string module, string httpMethod,
-            string routeTemplate, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod,
+            string routeTemplate, CancellationToken cancellationToken)
+        {
+            PolicyDeleted = true;
+            return Task.CompletedTask;
+        }
 
-        public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid roleId, IReadOnlyList<string> entitlements,
+        public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<string> entitlements,
             CancellationToken cancellationToken)
         {
             Grants = entitlements.ToHashSet();

@@ -1,0 +1,49 @@
+{
+  "TimestampUtc": "2026-11-10T13:34:02.9871575+00:00",
+  "Runtime": ".NET 10.0.10",
+  "Os": "Microsoft Windows 10.0.22631",
+  "ProcessorCount": 20,
+  "RequestsPerRun": 200,
+  "Workload": [
+    {
+      "Name": "default",
+      "Request": {
+        "SubjectId": "benchmark-user",
+        "RoleIds": [
+          "10954aa4-7532-80de-a80e-a7be3ad4c991"
+        ],
+        "Module": "benchmark",
+        "HttpMethod": "GET",
+        "RouteTemplate": "/benchmark/{id}",
+        "TenantId": "benchmark-tenant",
+        "UnitOrganizationId": "33333333-3333-3333-3333-333333333333"
+      },
+      "ExpectedPermit": true,
+      "Weight": 1
+    }
+  ],
+  "Results": [
+    {
+      "Scenario": "in-memory store",
+      "Concurrency": 8,
+      "Requests": 200,
+      "WallTimeMs": 27.0337,
+      "RequestsPerSecond": 7398.173390989765,
+      "P50Ms": 0.5434,
+      "P95Ms": 0.9377,
+      "P99Ms": 11.8929,
+      "MaxMs": 12.5298
+    },
+    {
+      "Scenario": "SQLite store",
+      "Concurrency": 8,
+      "Requests": 200,
+      "WallTimeMs": 18.9258,
+      "RequestsPerSecond": 10567.58498980228,
+      "P50Ms": 0.6423,
+      "P95Ms": 1.0315,
+      "P99Ms": 1.1683,
+      "MaxMs": 1.8219
+    }
+  ]
+}

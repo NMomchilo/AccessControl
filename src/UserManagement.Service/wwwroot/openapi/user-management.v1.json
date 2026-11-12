@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "User Management Service API",
-    "version": "2.0.0",
-    "description": "Tenant-scoped Entra user resolution and role catalog. User Management owns user assignments; Access Control owns entitlement grants. The consuming API validates the JWT before calling resolve and forwards returned role IDs for decisions."
+    "version": "5.0.0",
+    "description": "Tenant and unit-organization scoped user resolution, roles, and organization administration. The consuming API validates both the user JWT and trusted gateway UO assertion. Client-supplied headers are not trusted organization identity."
   },
   "servers": [
     {
@@ -90,7 +90,7 @@
           "Client"
         ],
         "summary": "Find or create a tenant-scoped user and return role IDs",
-        "description": "The consuming API supplies its application tenant and the validated Entra oid. A new user receives the tenant's reviewer role. The service does not validate the end-user JWT.",
+        "description": "Resolve a validated oid in the tenant and gateway-authenticated UO. A missing UO, user, or Reviewer assignment is created idempotently.",
         "operationId": "resolveUser",
         "security": [
           {
@@ -108,7 +108,9 @@
                 "tenantId": "default",
                 "objectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
                 "email": "user@example.com",
-                "displayName": "Example User"
+                "displayName": "Example User",
+                "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                "unitOrganizationName": "Customer Operations"
               }
             }
           }
@@ -131,7 +133,9 @@
                       "code": "reviewer",
                       "displayName": "Reviewer"
                     }
-                  ]
+                  ],
+                  "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                  "unitOrganizationName": "Customer Operations"
                 }
               }
             }
@@ -144,6 +148,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "409": {
+            "description": "UO ID is tombstoned or asserted name conflicts with an existing organization"
           }
         }
       }
@@ -153,7 +160,7 @@
         "tags": [
           "Client"
         ],
-        "summary": "Read the shared role revision",
+        "summary": "Get the shared user, UO, and role revision",
         "description": "Consuming instances poll this value to invalidate cached roles and active status after administrator changes.",
         "operationId": "getUserRoleRevision",
         "security": [
@@ -202,6 +209,9 @@
           },
           {
             "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/UnitOrganizationId"
           }
         ],
         "responses": {
@@ -250,6 +260,9 @@
           },
           {
             "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/UnitOrganizationId"
           }
         ],
         "requestBody": {
@@ -344,7 +357,7 @@
         "tags": [
           "Administration"
         ],
-        "summary": "List roles in an application tenant",
+        "summary": "List roles across a tenant or in one UO",
         "operationId": "listRoles",
         "security": [
           {
@@ -354,18 +367,38 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/OptionalUnitOrganizationId"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
           }
         ],
         "responses": {
           "200": {
-            "description": "Tenant role catalog",
+            "description": "Page of roles",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/RoleInfo"
-                  }
+                  "$ref": "#/components/schemas/PagedRoles"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
+                      "tenantId": "default",
+                      "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                      "code": "reviewer",
+                      "displayName": "Reviewer"
+                    }
+                  ],
+                  "totalCount": 1,
+                  "page": 1,
+                  "pageSize": 100
                 }
               }
             }
@@ -378,16 +411,20 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "404": {
+            "description": "Filtered UO not found or tombstoned"
           }
-        }
+        },
+        "description": "Omit unitOrganizationId for all active UOs, or supply it to filter. Stable order by UO ID, code, and role ID."
       },
       "post": {
         "tags": [
           "Administration"
         ],
-        "summary": "Create a tenant-scoped role",
+        "summary": "Create a UO-scoped role",
         "operationId": "createRole",
-        "description": "Code is unique within the tenant; display names may be the same. The service generates a stable role ID for later assignments and Access Control grants.",
+        "description": "Code is unique within the tenant and UO. Role IDs are stable for assignments and Access Control grants.",
         "security": [
           {
             "AdministratorApiKey": []
@@ -403,7 +440,8 @@
               "example": {
                 "tenantId": "default",
                 "code": "advisor",
-                "displayName": "Advisor"
+                "displayName": "Advisor",
+                "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
               }
             }
           }
@@ -427,6 +465,426 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      }
+    },
+    "/v1/unit-organizations": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "List unit organizations in a tenant",
+        "operationId": "listUnitOrganizations",
+        "security": [
+          {
+            "AdministratorApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organizations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UnitOrganizationInfo"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Create a unit organization",
+        "operationId": "createUnitOrganization",
+        "security": [
+          {
+            "AdministratorApiKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUnitOrganizationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Organization created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitOrganizationInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          },
+          "409": {
+            "description": "Organization ID was tombstoned and cannot be reused"
+          }
+        }
+      }
+    },
+    "/v1/unit-organizations/{id}": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Get a unit organization",
+        "operationId": "getUnitOrganization",
+        "security": [
+          {
+            "AdministratorApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationPathId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitOrganizationInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Rename a unit organization",
+        "operationId": "updateUnitOrganization",
+        "security": [
+          {
+            "AdministratorApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationPathId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUnitOrganizationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated organization",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitOrganizationInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Tombstone a unit organization",
+        "operationId": "deleteUnitOrganization",
+        "security": [
+          {
+            "AdministratorApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationPathId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Organization deleted"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Organization not found"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        },
+        "description": "Retains users and roles for audit but blocks resolution and role assignment for this UO ID. GET/list omit tombstones. REST create with the same ID returns 409. Already cached resolutions can remain effective for up to five seconds. Clean up Access Control grants and policies separately."
+      }
+    },
+    "/v1/users": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "List all users in a tenant",
+        "operationId": "listUsers",
+        "security": [
+          {
+            "AdministratorApiKey": []
+          }
+        ],
+        "description": "Includes inactive users. Stable order by objectId and userId. Empty items for a page beyond the end.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of tenant users",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagedUsers"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "userId": "70f515ab-3c8d-42ab-92a3-3a06f1f9d938",
+                      "objectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
+                      "displayName": "Example User",
+                      "email": "user@example.com",
+                      "isActive": true
+                    }
+                  ],
+                  "totalCount": 1,
+                  "page": 1,
+                  "pageSize": 100
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      }
+    },
+    "/v1/unit-organizations/{id}/users": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "List members of an active unit organization",
+        "operationId": "listUnitOrganizationUsers",
+        "security": [
+          {
+            "AdministratorApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationPathId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of UO members",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagedUsers"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "userId": "70f515ab-3c8d-42ab-92a3-3a06f1f9d938",
+                      "objectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
+                      "displayName": "Example User",
+                      "email": "user@example.com",
+                      "isActive": true
+                    }
+                  ],
+                  "totalCount": 1,
+                  "page": 1,
+                  "pageSize": 100
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          },
+          "404": {
+            "description": "UO not found or tombstoned"
+          }
+        }
+      }
+    },
+    "/v1/unit-organizations/{id}/roles": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "List roles in one active unit organization",
+        "operationId": "listUnitOrganizationRoles",
+        "security": [
+          {
+            "AdministratorApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationPathId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of UO roles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagedRoles"
+                },
+                "example": {
+                  "items": [
+                    {
+                      "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
+                      "tenantId": "default",
+                      "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                      "code": "reviewer",
+                      "displayName": "Reviewer"
+                    }
+                  ],
+                  "totalCount": 1,
+                  "page": 1,
+                  "pageSize": 100
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          },
+          "404": {
+            "description": "UO not found or tombstoned"
           }
         }
       }
@@ -469,6 +927,63 @@
           "maxLength": 128
         },
         "example": "default"
+      },
+      "UnitOrganizationId": {
+        "name": "unitOrganizationId",
+        "in": "query",
+        "required": true,
+        "description": "UO ID within the application tenant.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "example": "33333333-3333-3333-3333-333333333333"
+      },
+      "OrganizationPathId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "example": "33333333-3333-3333-3333-333333333333"
+      },
+      "Page": {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "default": 1
+        },
+        "example": 1
+      },
+      "PageSize": {
+        "name": "pageSize",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 100
+        },
+        "example": 100
+      },
+      "OptionalUnitOrganizationId": {
+        "name": "unitOrganizationId",
+        "in": "query",
+        "required": false,
+        "description": "When omitted, list roles in all active UOs of this tenant.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "example": "33333333-3333-3333-3333-333333333333"
       }
     },
     "schemas": {
@@ -488,7 +1003,9 @@
         "type": "object",
         "required": [
           "tenantId",
-          "objectId"
+          "objectId",
+          "unitOrganizationId",
+          "unitOrganizationName"
         ],
         "properties": {
           "objectId": {
@@ -512,6 +1029,18 @@
             "maxLength": 128,
             "example": "default",
             "description": "Application tenant."
+          },
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable gateway-asserted organization ID within the application tenant.",
+            "example": "33333333-3333-3333-3333-333333333333"
+          },
+          "unitOrganizationName": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Gateway-asserted display name; resolution does not rename an existing organization.",
+            "example": "Customer Operations"
           }
         }
       },
@@ -521,7 +1050,9 @@
           "userId",
           "tenantId",
           "isActive",
-          "roles"
+          "roles",
+          "unitOrganizationId",
+          "unitOrganizationName"
         ],
         "properties": {
           "userId": {
@@ -542,6 +1073,18 @@
           "tenantId": {
             "type": "string",
             "example": "default"
+          },
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Stable gateway-asserted organization ID within the application tenant.",
+            "example": "33333333-3333-3333-3333-333333333333"
+          },
+          "unitOrganizationName": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Gateway-asserted display name; resolution does not rename an existing organization.",
+            "example": "Customer Operations"
           }
         }
       },
@@ -558,7 +1101,7 @@
               "type": "string",
               "format": "uuid"
             },
-            "description": "Complete replacement. Every ID must belong to the user's tenant; [] removes all roles."
+            "description": "Complete replacement. Every ID must belong to the selected tenant and UO; [] removes all roles there."
           }
         }
       },
@@ -626,7 +1169,8 @@
         "required": [
           "tenantId",
           "code",
-          "displayName"
+          "displayName",
+          "unitOrganizationId"
         ],
         "properties": {
           "tenantId": {
@@ -640,6 +1184,12 @@
           "displayName": {
             "type": "string",
             "maxLength": 200
+          },
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Role scope within the tenant.",
+            "example": "33333333-3333-3333-3333-333333333333"
           }
         }
       },
@@ -649,7 +1199,8 @@
           "roleId",
           "tenantId",
           "code",
-          "displayName"
+          "displayName",
+          "unitOrganizationId"
         ],
         "properties": {
           "roleId": {
@@ -667,6 +1218,172 @@
           "displayName": {
             "type": "string",
             "maxLength": 200
+          },
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Role scope within the tenant.",
+            "example": "33333333-3333-3333-3333-333333333333"
+          }
+        }
+      },
+      "CreateUnitOrganizationRequest": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenantId",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "33333333-3333-3333-3333-333333333333"
+          },
+          "tenantId": {
+            "type": "string",
+            "maxLength": 128,
+            "example": "default"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "example": "Customer Operations"
+          }
+        }
+      },
+      "UpdateUnitOrganizationRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "example": "Customer Operations"
+          }
+        }
+      },
+      "UnitOrganizationInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenantId",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "33333333-3333-3333-3333-333333333333"
+          },
+          "tenantId": {
+            "type": "string",
+            "maxLength": 128,
+            "example": "default"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "example": "Customer Operations"
+          }
+        }
+      },
+      "UserSummary": {
+        "type": "object",
+        "required": [
+          "userId",
+          "objectId",
+          "displayName",
+          "isActive",
+          "email"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "objectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Validated Entra oid."
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PagedUsers": {
+        "type": "object",
+        "required": [
+          "items",
+          "totalCount",
+          "page",
+          "pageSize"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserSummary"
+            }
+          },
+          "totalCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "PagedRoles": {
+        "type": "object",
+        "required": [
+          "items",
+          "totalCount",
+          "page",
+          "pageSize"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoleInfo"
+            }
+          },
+          "totalCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1,
+            "maximum": 100
           }
         }
       }

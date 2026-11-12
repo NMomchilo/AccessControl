@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace AccessControl.Contracts;
 
 public sealed record DecisionRequest(
@@ -6,4 +8,5 @@ public sealed record DecisionRequest(
     string Module,
     string HttpMethod,
     string RouteTemplate,
-    string TenantId);
+    string TenantId,
+    [property: JsonRequired] Guid UnitOrganizationId);

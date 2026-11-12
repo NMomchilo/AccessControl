@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Access Control Service API",
-    "version": "2.0.0",
-    "description": "Tenant-scoped endpoint policies and entitlement grants keyed by stable User Management role IDs. The consuming API forwards role IDs from User Management; Access Control does not store users."
+    "version": "4.0.0",
+    "description": "Tenant and unit-organization scoped endpoint decisions and administration."
   },
   "servers": [
     {
@@ -90,7 +90,8 @@
                 "module": "customers",
                 "httpMethod": "GET",
                 "routeTemplate": "/customers/{id}",
-                "tenantId": "default"
+                "tenantId": "default",
+                "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
               }
             }
           }
@@ -158,6 +159,9 @@
             "$ref": "#/components/parameters/TenantId"
           },
           {
+            "$ref": "#/components/parameters/UnitOrganizationId"
+          },
+          {
             "$ref": "#/components/parameters/Module"
           },
           {
@@ -197,7 +201,7 @@
           "Policies"
         ],
         "summary": "Create or replace an endpoint policy",
-        "description": "Public policies have no required entitlements. Protected policies require at least one. Method is normalized to uppercase; tenant, module, route template, and entitlements are normalized to lowercase.",
+        "description": "Protected policies require nonzero UO ID and entitlements. All-zero UO ID is reserved for a global public policy. A UO-specific policy takes precedence over the global public fallback.",
         "operationId": "upsertPolicy",
         "security": [
           {
@@ -221,7 +225,8 @@
                     "isPublic": false,
                     "requiredEntitlements": [
                       "customers.view"
-                    ]
+                    ],
+                    "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
                   }
                 },
                 "public": {
@@ -231,7 +236,8 @@
                     "httpMethod": "GET",
                     "routeTemplate": "/customers/public",
                     "isPublic": true,
-                    "requiredEntitlements": []
+                    "requiredEntitlements": [],
+                    "unitOrganizationId": "00000000-0000-0000-0000-000000000000"
                   }
                 }
               }
@@ -275,7 +281,8 @@
                 "tenantId": "default",
                 "module": "customers",
                 "httpMethod": "GET",
-                "routeTemplate": "/customers/{id}"
+                "routeTemplate": "/customers/{id}",
+                "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
               }
             }
           }
@@ -311,6 +318,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/UnitOrganizationId"
           },
           {
             "$ref": "#/components/parameters/RoleId"
@@ -362,7 +372,8 @@
                 "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
                 "entitlements": [
                   "customers.view"
-                ]
+                ],
+                "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
               }
             }
           }
@@ -370,6 +381,119 @@
         "responses": {
           "204": {
             "description": "Role grants replaced"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      }
+    },
+    "/v1/entitlements": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "List referenced entitlement names in a tenant",
+        "operationId": "listEntitlements",
+        "security": [
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
+        ],
+        "description": "Union of endpoint policy requirements and role grants, distinct and sorted. Unreferenced names do not appear.",
+        "responses": {
+          "200": {
+            "description": "Distinct referenced entitlement names, sorted by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementPageResponse"
+                },
+                "example": {
+                  "items": [
+                    "customers.view"
+                  ],
+                  "totalCount": 1,
+                  "page": 1,
+                  "pageSize": 100
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      }
+    },
+    "/v1/unit-organizations/{id}/entitlements": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "List referenced entitlement names in one UO",
+        "operationId": "listUnitOrganizationEntitlements",
+        "security": [
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/OrganizationPathId"
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
+        ],
+        "description": "The UO ID must be nonzero. Access Control has no UO directory, so an unknown UO returns an empty page.",
+        "responses": {
+          "200": {
+            "description": "Distinct referenced entitlement names, sorted by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementPageResponse"
+                },
+                "example": {
+                  "items": [
+                    "customers.view"
+                  ],
+                  "totalCount": 1,
+                  "page": 1,
+                  "pageSize": 100
+                }
+              }
+            }
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -450,6 +574,51 @@
           "format": "uuid"
         },
         "example": "b78650b4-c248-cab1-3d80-9a7c0dad7059"
+      },
+      "UnitOrganizationId": {
+        "name": "unitOrganizationId",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "example": "33333333-3333-3333-3333-333333333333"
+      },
+      "Page": {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "default": 1
+        },
+        "example": 1
+      },
+      "PageSize": {
+        "name": "pageSize",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 100
+        },
+        "example": 100
+      },
+      "OrganizationPathId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "example": "33333333-3333-3333-3333-333333333333"
       }
     },
     "schemas": {
@@ -460,7 +629,8 @@
           "module",
           "httpMethod",
           "routeTemplate",
-          "tenantId"
+          "tenantId",
+          "unitOrganizationId"
         ],
         "properties": {
           "subjectId": {
@@ -493,6 +663,12 @@
               "format": "uuid"
             },
             "description": "Role IDs returned by User Management. Empty for anonymous callers."
+          },
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UO ID validated through User Management. All-zero ID is reserved for global public policies and anonymous decisions.",
+            "example": "33333333-3333-3333-3333-333333333333"
           }
         }
       },
@@ -514,7 +690,7 @@
           },
           "authenticationRequired": {
             "type": "boolean",
-            "description": "True when a protected endpoint received no subject ID."
+            "description": "True when an anonymous caller has no matching global public policy and must authenticate."
           }
         }
       },
@@ -524,7 +700,8 @@
           "tenantId",
           "module",
           "httpMethod",
-          "routeTemplate"
+          "routeTemplate",
+          "unitOrganizationId"
         ],
         "properties": {
           "tenantId": {
@@ -546,6 +723,12 @@
             "type": "string",
             "maxLength": 512,
             "example": "/customers/{id}"
+          },
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UO ID validated through User Management. All-zero ID is reserved for global public policies and anonymous decisions.",
+            "example": "33333333-3333-3333-3333-333333333333"
           }
         }
       },
@@ -582,7 +765,8 @@
         "required": [
           "tenantId",
           "roleId",
-          "entitlements"
+          "entitlements",
+          "unitOrganizationId"
         ],
         "properties": {
           "tenantId": {
@@ -604,6 +788,12 @@
             "type": "string",
             "format": "uuid",
             "example": "b78650b4-c248-cab1-3d80-9a7c0dad7059"
+          },
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UO ID validated through User Management. All-zero ID is reserved for global public policies and anonymous decisions.",
+            "example": "33333333-3333-3333-3333-333333333333"
           }
         }
       },
@@ -630,6 +820,40 @@
           "instance": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "EntitlementPageResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "totalCount",
+          "page",
+          "pageSize"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          "totalCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1,
+            "maximum": 100
           }
         }
       }

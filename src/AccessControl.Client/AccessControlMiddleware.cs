@@ -55,21 +55,26 @@ public sealed class AccessControlMiddleware(
 
         string tenantId = (authenticated ? context.User.FindFirstValue(settings.TenantClaimType) : null)
             ?? settings.DefaultTenantId;
-        if (authenticated && settings.RoleIdentityAuthenticationType is not null &&
-            context.User.Identities.Any(identity =>
-                identity.AuthenticationType == settings.RoleIdentityAuthenticationType &&
-                identity.HasClaim(claim => claim.Type == settings.RoleIdClaimType) &&
-                !string.Equals(identity.FindFirst("user_management_tenant_id")?.Value, tenantId.Trim(),
-                    StringComparison.OrdinalIgnoreCase)))
+        Guid unitOrganizationId = Guid.Empty;
+        ClaimsIdentity[] managedIdentities = context.User.Identities
+            .Where(identity => identity.AuthenticationType == settings.RoleIdentityAuthenticationType).ToArray();
+        if (authenticated)
         {
-            logger.LogWarning("Application role tenant does not match decision tenant; trace {TraceId}", context.TraceIdentifier);
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
+            string[] organizationClaims = managedIdentities.SelectMany(identity => identity.Claims)
+                .Where(claim => claim.Type == "user_management_unit_organization_id")
+                .Select(claim => claim.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (organizationClaims.Length != 1 ||
+                !Guid.TryParse(organizationClaims[0], out unitOrganizationId) || unitOrganizationId == Guid.Empty ||
+                managedIdentities.Any(identity => !string.Equals(identity.FindFirst("user_management_tenant_id")?.Value,
+                    tenantId.Trim(), StringComparison.OrdinalIgnoreCase)))
+            {
+                logger.LogWarning("Missing or inconsistent unit organization/tenant from User Management; trace {TraceId}", context.TraceIdentifier);
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
         }
         string[] roleClaims = authenticated
-            ? context.User.Identities
-                .Where(identity => settings.RoleIdentityAuthenticationType is null ||
-                    identity.AuthenticationType == settings.RoleIdentityAuthenticationType)
+            ? managedIdentities
                 .SelectMany(identity => identity.Claims)
                 .Where(claim => claim.Type == settings.RoleIdClaimType)
                 .Select(claim => claim.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -81,7 +86,7 @@ public sealed class AccessControlMiddleware(
             return;
         }
         Guid[] roleIds = roleClaims.Select(Guid.Parse).Distinct().ToArray();
-        DecisionRequest request = new(subjectId, roleIds, settings.Module, method, route, tenantId);
+        DecisionRequest request = new(subjectId, roleIds, settings.Module, method, route, tenantId, unitOrganizationId);
         logger.LogDebug("Requesting decision for {TenantId} {Module} {Method} {Route}; authenticated {Authenticated}, roles {RoleCount}, trace {TraceId}",
             tenantId, settings.Module, method, route, authenticated, roleIds.Length, context.TraceIdentifier);
 

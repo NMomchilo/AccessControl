@@ -11,6 +11,7 @@ public sealed class UserManagementMiddlewareTests
 {
     private const string Oid = "9155ff4d-2708-4770-b87e-e238645ec5df";
     private static readonly Guid Reviewer = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid OrganizationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
     [Fact]
     public async Task InvokeAsync_AuthenticatedUser_AddsDedicatedRoleClaimsAsync()
@@ -25,10 +26,16 @@ public sealed class UserManagementMiddlewareTests
         Assert.True(ran);
         Assert.Equal(Oid, client.Request?.ObjectId);
         Assert.Equal("default", client.Request?.TenantId);
+        Assert.Equal(OrganizationId, client.Request?.UnitOrganizationId);
+        Assert.Equal("Alpha", client.Request?.UnitOrganizationName);
         Assert.Contains(context.User.Claims, claim => claim.Type == UserManagementClaims.Role && claim.Value == "reviewer");
         Assert.Contains(context.User.Claims, claim => claim.Type == UserManagementClaims.RoleId && claim.Value == Reviewer.ToString("D"));
         Assert.True(context.User.IsInRole("reviewer"));
         Assert.Contains(context.User.Claims, claim => claim.Type == UserManagementClaims.UserId);
+        Assert.Contains(context.User.Claims, claim => claim.Type == UserManagementClaims.UnitOrganizationId &&
+            claim.Value == OrganizationId.ToString("D"));
+        Assert.Contains(context.User.Claims, claim => claim.Type == "user_management_unit_organization_id" &&
+            claim.Value == OrganizationId.ToString("D"));
     }
 
     [Fact]
@@ -110,6 +117,15 @@ public sealed class UserManagementMiddlewareTests
     }
 
     [Fact]
+    public async Task InvokeAsync_DeletedOrganization_Returns403Async()
+    {
+        UserManagementMiddleware sut = Create(new RejectedOrganizationClient());
+        DefaultHttpContext context = AuthenticatedContext(new Claim("oid", Oid));
+        await sut.InvokeAsync(context);
+        Assert.Equal(403, context.Response.StatusCode);
+    }
+
+    [Fact]
     public async Task InvokeAsync_AppOnlyPrincipal_DoesNotProvisionUserAsync()
     {
         CapturingClient client = new();
@@ -138,6 +154,77 @@ public sealed class UserManagementMiddlewareTests
         Assert.Null(client.Request);
     }
 
+    [Fact]
+    public async Task InvokeAsync_WithoutTrustedGatewayIdentity_DoesNotResolveAsync()
+    {
+        CapturingClient client = new();
+        DefaultHttpContext context = new();
+        context.User = new ClaimsPrincipal(new ClaimsIdentity([
+            new Claim("oid", Oid), new Claim("scp", "user_impersonation"),
+            new Claim("unit_organization_id", OrganizationId.ToString("D")),
+            new Claim("unit_organization_name", "Alpha")], "jwt"));
+        await Create(client).InvokeAsync(context);
+        Assert.Equal(403, context.Response.StatusCode);
+        Assert.Null(client.Request);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_InvalidGatewayOrganizationId_DoesNotResolveAsync()
+    {
+        CapturingClient client = new();
+        DefaultHttpContext context = AuthenticatedContext(new Claim("oid", Oid));
+        ClaimsIdentity gateway = context.User.Identities.Single(identity => identity.AuthenticationType == "Gateway");
+        gateway.RemoveClaim(gateway.FindFirst("unit_organization_id")!);
+        gateway.AddClaim(new Claim("unit_organization_id", "invalid"));
+        await Create(client).InvokeAsync(context);
+        Assert.Equal(403, context.Response.StatusCode);
+        Assert.Null(client.Request);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_InvalidTenant_DeniesBeforeResolutionAsync()
+    {
+        CapturingClient client = new();
+        DefaultHttpContext context = AuthenticatedContext(new Claim("oid", Oid));
+        context.User.Identities.First().AddClaim(new Claim("tenant_id", new string('x', 129)));
+
+        await Create(client).InvokeAsync(context);
+
+        Assert.Equal(403, context.Response.StatusCode);
+        Assert.Null(client.Request);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task InvokeAsync_MismatchedResolution_DoesNotAddClaimsOrRunControllerAsync(bool wrongTenant)
+    {
+        bool ranController = false;
+        UserManagementMiddleware sut = Create(new MismatchedClient(wrongTenant),
+            _ => { ranController = true; return Task.CompletedTask; });
+        DefaultHttpContext context = AuthenticatedContext(new Claim("oid", Oid));
+
+        await sut.InvokeAsync(context);
+
+        Assert.Equal(503, context.Response.StatusCode);
+        Assert.False(ranController);
+        Assert.DoesNotContain(context.User.Claims, claim => claim.Type == UserManagementClaims.RoleId);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_DuplicateGatewayOrganizationClaims_DeniesBeforeResolutionAsync()
+    {
+        CapturingClient client = new();
+        DefaultHttpContext context = AuthenticatedContext(new Claim("oid", Oid));
+        context.User.Identities.Single(identity => identity.AuthenticationType == "Gateway")
+            .AddClaim(new Claim("unit_organization_id", Guid.NewGuid().ToString("D")));
+
+        await Create(client).InvokeAsync(context);
+
+        Assert.Equal(403, context.Response.StatusCode);
+        Assert.Null(client.Request);
+    }
+
     private static UserManagementMiddleware Create(IUserManagementClient client, RequestDelegate? next = null) =>
         new(next ?? (_ => Task.CompletedTask), client, Options.Create(new UserManagementClientOptions()),
             NullLogger<UserManagementMiddleware>.Instance);
@@ -146,6 +233,9 @@ public sealed class UserManagementMiddlewareTests
     {
         DefaultHttpContext context = new();
         context.User = new ClaimsPrincipal(new ClaimsIdentity([claim, new Claim("scp", "user_impersonation")], "test"));
+        context.User.AddIdentity(new ClaimsIdentity([
+            new Claim("unit_organization_id", OrganizationId.ToString("D")),
+            new Claim("unit_organization_name", "Alpha")], "Gateway"));
         return context;
     }
 
@@ -156,7 +246,8 @@ public sealed class UserManagementMiddlewareTests
         public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request, CancellationToken cancellationToken)
         {
             Request = request;
-            return Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), request.TenantId, active,
+            return Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), request.TenantId,
+                request.UnitOrganizationId, request.UnitOrganizationName, active,
                 [new UserRoleInfo(Reviewer, "reviewer", "Reviewer")]));
         }
     }
@@ -165,5 +256,20 @@ public sealed class UserManagementMiddlewareTests
     {
         public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request, CancellationToken cancellationToken) =>
             throw new HttpRequestException("unavailable");
+    }
+
+    private sealed class RejectedOrganizationClient : IUserManagementClient
+    {
+        public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request,
+            CancellationToken cancellationToken) => throw new UnitOrganizationAccessException();
+    }
+
+    private sealed class MismatchedClient(bool wrongTenant) : IUserManagementClient
+    {
+        public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request,
+            CancellationToken cancellationToken) => Task.FromResult(new UserIdentityResponse(Guid.NewGuid(),
+            wrongTenant ? "another-tenant" : request.TenantId,
+            wrongTenant ? request.UnitOrganizationId : Guid.NewGuid(), "Alpha", true,
+            [new UserRoleInfo(Reviewer, "reviewer", "Reviewer")]));
     }
 }

@@ -7,4 +7,6 @@ public static class UserManagementClaims
     public const string RoleId = "access_control_role_id";
     public const string UserId = "user_management_id";
     public const string TenantId = "user_management_tenant_id";
+    public const string UnitOrganizationId = "user_management_unit_organization_id";
+    public const string UnitOrganizationName = "user_management_unit_organization_name";
 }

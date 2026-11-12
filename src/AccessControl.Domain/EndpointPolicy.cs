@@ -6,4 +6,5 @@ public sealed record EndpointPolicy(
     string HttpMethod,
     string RouteTemplate,
     bool IsPublic,
-    IReadOnlyList<string> RequiredEntitlements);
+    IReadOnlyList<string> RequiredEntitlements,
+    Guid UnitOrganizationId);

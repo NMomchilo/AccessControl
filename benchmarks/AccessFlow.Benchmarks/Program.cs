@@ -56,6 +56,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero
         };
+        // Benchmark-only stand-in for a gateway that has already authenticated its organization assertion.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = context =>
+            {
+                context.Principal?.AddIdentity(new ClaimsIdentity(
+                    [new Claim("unit_organization_id", "33333333-3333-3333-3333-333333333333"),
+                     new Claim("unit_organization_name", "Benchmark Organization")], "Gateway"));
+                return Task.CompletedTask;
+            }
+        };
     });
 builder.Services.AddAuthorization();
 builder.Services.AddControllers();
@@ -123,7 +134,7 @@ try
 
     FlowBenchmarkReport report = new(DateTimeOffset.UtcNow, RuntimeInformation.FrameworkDescription,
         RuntimeInformation.OSDescription, Environment.ProcessorCount,
-        "Locally signed RS256 JWT, validated on every request", settings, results);
+        "Locally signed RS256 JWT and benchmark Gateway identity, validated on every request", settings, results);
     string outputPath = Path.GetFullPath(settings.Output, outputDirectory);
     Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
     await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(report,

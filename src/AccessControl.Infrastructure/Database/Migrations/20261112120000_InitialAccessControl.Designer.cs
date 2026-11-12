@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AccessControl.Infrastructure.Database.Migrations
 {
     [DbContext(typeof(AccessControlDbContext))]
-    [Migration("20261110130706_InitialAccessControl")]
+    [Migration("20261112120000_InitialAccessControl")]
     partial class InitialAccessControl
     {
         /// <inheritdoc />
@@ -103,9 +103,12 @@ namespace AccessControl.Infrastructure.Database.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
+                    b.Property<Guid>("UnitOrganizationId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId", "Module", "HttpMethod", "RouteTemplate")
+                    b.HasIndex("TenantId", "UnitOrganizationId", "Module", "HttpMethod", "RouteTemplate")
                         .IsUnique();
 
                     b.ToTable("EndpointPolicies", (string)null);
@@ -173,9 +176,12 @@ namespace AccessControl.Infrastructure.Database.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
+                    b.Property<Guid>("UnitOrganizationId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId", "RoleId", "Entitlement")
+                    b.HasIndex("TenantId", "UnitOrganizationId", "RoleId", "Entitlement")
                         .IsUnique();
 
                     b.ToTable("RoleEntitlements", (string)null);

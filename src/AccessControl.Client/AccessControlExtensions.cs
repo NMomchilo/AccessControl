@@ -18,6 +18,7 @@ public static class AccessControlExtensions
                 !string.IsNullOrWhiteSpace(options.TenantClaimType) &&
                 !string.IsNullOrWhiteSpace(options.DefaultTenantId) &&
                 !string.IsNullOrWhiteSpace(options.RoleIdClaimType) &&
+                !string.IsNullOrWhiteSpace(options.RoleIdentityAuthenticationType) &&
                 options.ExcludedPaths is not null &&
                 options.TimeoutSeconds > 0,
                 "AccessControl requires HTTPS ServiceUrl, ApiKey, Module, tenant settings and a positive timeout.")

@@ -10,4 +10,5 @@ public sealed class UserEntity
     public bool IsActive { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; }
     public List<UserRoleEntity> Roles { get; set; } = [];
+    public List<UnitOrganizationMembershipEntity> Organizations { get; set; } = [];
 }

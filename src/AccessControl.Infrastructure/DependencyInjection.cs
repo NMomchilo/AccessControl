@@ -24,6 +24,7 @@ public static class DependencyInjection
             .ValidateOnStart();
         services.AddSingleton<AuthorizationCache>();
         services.AddScoped<SqlAuthorizationStore>();
+        services.AddScoped<IEntitlementCatalog, SqlEntitlementCatalog>();
         services.AddScoped<IAuthorizationStore>(provider => new CachingAuthorizationStore(
             provider.GetRequiredService<SqlAuthorizationStore>(),
             provider.GetRequiredService<AuthorizationCache>(),

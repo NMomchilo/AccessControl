@@ -12,7 +12,7 @@ using UserManagement.Infrastructure.Database;
 namespace UserManagement.Infrastructure.Database.Migrations
 {
     [DbContext(typeof(UserManagementDbContext))]
-    [Migration("20261110130653_InitialUserManagement")]
+    [Migration("20261112120001_InitialUserManagement")]
     partial class InitialUserManagement
     {
         /// <inheritdoc />
@@ -46,9 +46,12 @@ namespace UserManagement.Infrastructure.Database.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
+                    b.Property<Guid>("UnitOrganizationId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId", "Code")
+                    b.HasIndex("TenantId", "UnitOrganizationId", "Code")
                         .IsUnique();
 
                     b.ToTable("Roles", (string)null);
@@ -116,9 +119,60 @@ namespace UserManagement.Infrastructure.Database.Migrations
                         });
                 });
 
+            modelBuilder.Entity("UserManagement.Infrastructure.Database.UnitOrganizationEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique()
+                        .HasFilter("[IsDeleted] = 0");
+
+                    b.ToTable("UnitOrganizations", (string)null);
+                });
+
+            modelBuilder.Entity("UserManagement.Infrastructure.Database.UnitOrganizationMembershipEntity", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UnitOrganizationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("UserId", "UnitOrganizationId");
+
+                    b.HasIndex("TenantId", "UnitOrganizationId");
+
+                    b.ToTable("UnitOrganizationMemberships", (string)null);
+                });
+
             modelBuilder.Entity("UserManagement.Infrastructure.Database.UserRoleEntity", b =>
                 {
                     b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UnitOrganizationId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("RoleId")
@@ -129,30 +183,72 @@ namespace UserManagement.Infrastructure.Database.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
-                    b.HasKey("UserId", "RoleId");
+                    b.HasKey("UserId", "UnitOrganizationId", "RoleId");
 
-                    b.HasIndex("TenantId", "RoleId");
+                    b.HasIndex("TenantId", "UserId", "UnitOrganizationId");
 
-                    b.HasIndex("TenantId", "UserId");
+                    b.HasIndex("TenantId", "UnitOrganizationId", "RoleId");
 
                     b.ToTable("UserRoles", (string)null);
                 });
 
-            modelBuilder.Entity("UserManagement.Infrastructure.Database.UserRoleEntity", b =>
+            modelBuilder.Entity("UserManagement.Infrastructure.Database.RoleEntity", b =>
                 {
-                    b.HasOne("UserManagement.Infrastructure.Database.RoleEntity", "Role")
-                        .WithMany("Users")
-                        .HasForeignKey("TenantId", "RoleId")
+                    b.HasOne("UserManagement.Infrastructure.Database.UnitOrganizationEntity", "UnitOrganization")
+                        .WithMany("Roles")
+                        .HasForeignKey("TenantId", "UnitOrganizationId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.Navigation("UnitOrganization");
+                });
+
+            modelBuilder.Entity("UserManagement.Infrastructure.Database.UnitOrganizationMembershipEntity", b =>
+                {
                     b.HasOne("UserManagement.Infrastructure.Database.UserEntity", "User")
-                        .WithMany("Roles")
+                        .WithMany("Organizations")
                         .HasForeignKey("TenantId", "UserId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("UserManagement.Infrastructure.Database.UnitOrganizationEntity", "UnitOrganization")
+                        .WithMany("Members")
+                        .HasForeignKey("TenantId", "UnitOrganizationId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+
+                    b.Navigation("UnitOrganization");
+                });
+
+            modelBuilder.Entity("UserManagement.Infrastructure.Database.UserRoleEntity", b =>
+                {
+                    b.HasOne("UserManagement.Infrastructure.Database.UserEntity", "User")
+                        .WithMany("Roles")
+                        .HasForeignKey("TenantId", "UserId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("UserManagement.Infrastructure.Database.UnitOrganizationMembershipEntity", "Membership")
+                        .WithMany("Roles")
+                        .HasForeignKey("TenantId", "UserId", "UnitOrganizationId")
+                        .HasPrincipalKey("TenantId", "UserId", "UnitOrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("UserManagement.Infrastructure.Database.RoleEntity", "Role")
+                        .WithMany("Users")
+                        .HasForeignKey("TenantId", "UnitOrganizationId", "RoleId")
+                        .HasPrincipalKey("TenantId", "UnitOrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Membership");
 
                     b.Navigation("Role");
 
@@ -165,6 +261,20 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 });
 
             modelBuilder.Entity("UserManagement.Infrastructure.Database.UserEntity", b =>
+                {
+                    b.Navigation("Organizations");
+
+                    b.Navigation("Roles");
+                });
+
+            modelBuilder.Entity("UserManagement.Infrastructure.Database.UnitOrganizationEntity", b =>
+                {
+                    b.Navigation("Members");
+
+                    b.Navigation("Roles");
+                });
+
+            modelBuilder.Entity("UserManagement.Infrastructure.Database.UnitOrganizationMembershipEntity", b =>
                 {
                     b.Navigation("Roles");
                 });

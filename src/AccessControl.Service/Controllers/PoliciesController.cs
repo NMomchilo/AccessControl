@@ -1,6 +1,7 @@
 using AccessControl.Application;
 using AccessControl.Contracts;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace AccessControl.Service.Controllers;
 
@@ -11,10 +12,10 @@ public sealed class PoliciesController(AuthorizationService authorizationService
     [HttpGet]
     [ProducesResponseType(typeof(PolicyRequest), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetAsync([FromQuery] string tenantId, [FromQuery] string module,
+    public async Task<IActionResult> GetAsync([FromQuery] string tenantId, [FromQuery, BindRequired] Guid unitOrganizationId, [FromQuery] string module,
         [FromQuery] string httpMethod, [FromQuery] string routeTemplate, CancellationToken cancellationToken)
     {
-        PolicyRequest? policy = await authorizationService.GetPolicyAsync(tenantId, module, httpMethod, routeTemplate, cancellationToken);
+        PolicyRequest? policy = await authorizationService.GetPolicyAsync(tenantId, unitOrganizationId, module, httpMethod, routeTemplate, cancellationToken);
         logger.LogDebug("Policy API lookup completed; found {Found}, trace {TraceId}", policy is not null, HttpContext.TraceIdentifier);
         return policy is null ? NotFound() : Ok(policy);
     }

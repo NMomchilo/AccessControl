@@ -11,19 +11,19 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         dbContext.AuthorizationRevisions.AsNoTracking().Where(x => x.Id == 1)
             .Select(x => x.Version).SingleAsync(cancellationToken);
 
-    public async Task<EndpointPolicy?> GetPolicyAsync(string tenantId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
+    public async Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
     {
         EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.AsNoTracking()
             .Include(x => x.RequiredEntitlements)
-            .SingleOrDefaultAsync(x => x.TenantId == tenantId && x.Module == module &&
+            .SingleOrDefaultAsync(x => x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
                 x.HttpMethod == httpMethod && x.RouteTemplate == routeTemplate, cancellationToken);
         logger.LogDebug("Loaded endpoint policy for {TenantId} {Module} {HttpMethod} {RouteTemplate}: {Found}",
             tenantId, module, httpMethod, routeTemplate, entity is not null);
         return entity is null ? null : new EndpointPolicy(entity.TenantId, entity.Module, entity.HttpMethod,
-            entity.RouteTemplate, entity.IsPublic, entity.RequiredEntitlements.Select(x => x.Entitlement).ToList());
+            entity.RouteTemplate, entity.IsPublic, entity.RequiredEntitlements.Select(x => x.Entitlement).ToList(), entity.UnitOrganizationId);
     }
 
-    public async Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken)
+    public async Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken)
     {
         if (roleIds.Count == 0)
         {
@@ -32,7 +32,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         }
 
         List<string> values = await dbContext.RoleEntitlements.AsNoTracking()
-            .Where(x => x.TenantId == tenantId && roleIds.Contains(x.RoleId))
+            .Where(x => x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && roleIds.Contains(x.RoleId))
             .Select(x => x.Entitlement)
             .ToListAsync(cancellationToken);
         logger.LogDebug("Loaded {EntitlementCount} entitlements for {RoleCount} roles in tenant {TenantId}",
@@ -44,7 +44,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.SingleOrDefaultAsync(x =>
-            x.TenantId == policy.TenantId && x.Module == policy.Module &&
+            x.TenantId == policy.TenantId && x.UnitOrganizationId == policy.UnitOrganizationId && x.Module == policy.Module &&
             x.HttpMethod == policy.HttpMethod && x.RouteTemplate == policy.RouteTemplate, cancellationToken);
 
         if (entity is null)
@@ -52,6 +52,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
             entity = new EndpointPolicyEntity
             {
                 TenantId = policy.TenantId,
+                UnitOrganizationId = policy.UnitOrganizationId,
                 Module = policy.Module,
                 HttpMethod = policy.HttpMethod,
                 RouteTemplate = policy.RouteTemplate,
@@ -85,10 +86,10 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
             policy.TenantId, policy.Module, policy.HttpMethod, policy.RouteTemplate, policy.IsPublic, policy.RequiredEntitlements.Count);
     }
 
-    public async Task DeletePolicyAsync(string tenantId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
+    public async Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        int deleted = await dbContext.EndpointPolicies.Where(x => x.TenantId == tenantId && x.Module == module &&
+        int deleted = await dbContext.EndpointPolicies.Where(x => x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
             x.HttpMethod == httpMethod && x.RouteTemplate == routeTemplate).ExecuteDeleteAsync(cancellationToken);
         await IncrementRevisionAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -96,10 +97,10 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
             deleted, tenantId, module, httpMethod, routeTemplate);
     }
 
-    public async Task ReplaceRoleEntitlementsAsync(string tenantId, Guid roleId, IReadOnlyList<string> entitlements, CancellationToken cancellationToken)
+    public async Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<string> entitlements, CancellationToken cancellationToken)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        int deleted = await dbContext.RoleEntitlements.Where(x => x.TenantId == tenantId && x.RoleId == roleId)
+        int deleted = await dbContext.RoleEntitlements.Where(x => x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.RoleId == roleId)
             .ExecuteDeleteAsync(cancellationToken);
 
         foreach (string entitlement in entitlements.Distinct(StringComparer.OrdinalIgnoreCase))
@@ -107,6 +108,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
             dbContext.RoleEntitlements.Add(new RoleEntitlementEntity
             {
                 TenantId = tenantId,
+                UnitOrganizationId = unitOrganizationId,
                 RoleId = roleId,
                 Entitlement = entitlement
             });

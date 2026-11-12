@@ -23,11 +23,17 @@ public sealed class HttpUserManagementClient(IHttpClientFactory clientFactory,
         using HttpResponseMessage response = await client.SendAsync(message, cancellationToken);
         logger.LogDebug("User resolution HTTP {StatusCode} in {ElapsedMs} ms",
             (int)response.StatusCode, timer.ElapsedMilliseconds);
+        if (response.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            throw new UnitOrganizationAccessException();
+        }
         response.EnsureSuccessStatusCode();
         UserIdentityResponse resolved = await response.Content.ReadFromJsonAsync<UserIdentityResponse>(cancellationToken)
             ?? throw new InvalidOperationException("User Management returned an empty response.");
         if (resolved.UserId == Guid.Empty ||
             !string.Equals(resolved.TenantId, request.TenantId, StringComparison.OrdinalIgnoreCase) ||
+            resolved.UnitOrganizationId != request.UnitOrganizationId ||
+            string.IsNullOrWhiteSpace(resolved.UnitOrganizationName) ||
             resolved.Roles is null || resolved.Roles.Count > 16 ||
             resolved.Roles.Any(role => role.RoleId == Guid.Empty || string.IsNullOrWhiteSpace(role.Code) ||
                 role.Code.Length > 64 || string.IsNullOrWhiteSpace(role.DisplayName)))

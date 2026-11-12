@@ -2,7 +2,7 @@
 
 ## User Management before authorization
 
-`UserManagement.Service` owns a separate SQL Server database with tenant-scoped users keyed by `(TenantId, oid)`, a role catalog with GUID IDs, and user-to-role assignments. A first delegated user request creates the user with that tenant's `reviewer` role. The reusable `UserManagement.Client` NuGet runs after JWT authentication and adds role-ID and role-code claims to `HttpContext.User` for that request. `AccessControl.Client` reads only role IDs from the dedicated User Management identity. User Management uses per-client and administrator credentials, a bounded five-second client cache keyed by tenant and oid, and a database revision polled after administrative changes. [API and client details](user-management-api.md).
+`UserManagement.Service` owns a separate SQL Server database with tenant-scoped users keyed by `(TenantId, oid)`, unit organizations (UOs), UO-scoped roles with GUID IDs, and user-to-role assignments within each UO. The consuming host validates Entra JWTs and gateway assertions first. On a first delegated request, User Management can create the gateway-asserted UO and assign the user its `reviewer` role. `UserManagement.Client` adds UO, role-ID, and role-code claims to `HttpContext.User` for that request. `AccessControl.Client` reads only UO and role IDs from the dedicated User Management identity. User Management uses per-client and administrator credentials, a bounded five-second client cache keyed by tenant, UO, and oid, and a database revision polled after administrative changes. [API and client details](user-management-api.md).
 
 ## Access Control decision flow
 
@@ -10,14 +10,15 @@
 flowchart LR
     Caller[Caller] --> Route[ASP.NET Core matches route and HTTP method]
     Route --> Auth[Consuming service validates Entra JWT]
-    Auth --> UserClient[UserManagement.Client middleware and cache]
-    UserClient -->|oid and profile on cache miss| UserApi[UserManagement.Service]
-    UserApi --> Users[(Users, Roles, and UserRoles)]
+    Auth --> Gateway[Validate trusted gateway UO assertion]
+    Gateway --> UserClient[UserManagement.Client middleware and cache]
+    UserClient -->|tenant, UO ID/name, oid and profile on cache miss| UserApi[UserManagement.Service]
+    UserApi --> Users[(Users, UnitOrganizations, Roles, and UserRoles)]
     Users --> UserApi
-    UserApi -->|active status and role IDs| UserClient
-    UserClient -->|application role-ID claims| NuGet[AccessControl.Client middleware]
+    UserApi -->|active status, UO and UO role IDs| UserClient
+    UserClient -->|application UO and role-ID claims| NuGet[AccessControl.Client middleware]
     UserClient -->|401, 403, or 503| Stop[Controller does not run]
-    NuGet -->|tenant, module, method, route template, subject, role IDs| API[AccessControl.Service]
+    NuGet -->|tenant, UO ID, module, method, route template, subject, role IDs| API[AccessControl.Service]
     API --> Policy[(EndpointPolicies + required entitlements)]
     API --> Grants[(RoleEntitlements)]
     Policy --> Evaluate[Evaluate policy]
@@ -27,13 +28,13 @@ flowchart LR
     NuGet -->|401, 403, or 503| Stop[Controller does not run]
 ```
 
-The packages sit after host authentication and route matching. Access Control reads the **route template** (`/customers/{id}`), not a concrete URL (`/customers/123`). There are no authorization attributes on controllers. The host owns token validation. The consuming API forwards subject and role IDs from User Management together with tenant, module, method, and route template. The services do not call one another. Access Control trusts the consuming API's assertions and should use scoped workload credentials before accepting mutually untrusted callers.
+The packages sit after host authentication, gateway validation, and route matching. Access Control reads the **route template** (`/customers/{id}`), not a concrete URL (`/customers/123`). There are no authorization attributes on controllers. The host owns token and gateway assertion validation. The consuming API forwards subject, UO ID, and role IDs from User Management together with tenant, module, method, and route template. The services do not call one another. Access Control trusts the consuming API's assertions and should use scoped workload credentials before accepting mutually untrusted callers.
 
-`EndpointPolicies` has one row per `(TenantId, Module, HttpMethod, RouteTemplate)` with `IsPublic`. `EndpointPolicyEntitlements` holds its allowed entitlement alternatives. `RoleEntitlements` grants entitlements to `(TenantId, RoleId)` pairs; it has no user columns. A policy permits when at least one required entitlement is in the union of the caller's role-ID grants. A public policy permits without authentication. No policy means Deny.
+`EndpointPolicies` has one row per `(TenantId, UnitOrganizationId, Module, HttpMethod, RouteTemplate)` with `IsPublic`. `EndpointPolicyEntitlements` holds its allowed entitlement alternatives. `RoleEntitlements` grants entitlements to `(TenantId, UnitOrganizationId, RoleId)`; it has no user columns. A policy permits when at least one required entitlement is in the union of the caller's role-ID grants in that scope. The all-zero UO ID is reserved for a global public policy, used by anonymous callers and as a fallback when no UO-specific policy exists. A UO-specific policy takes precedence. No policy means Deny.
 
 The initial Access Control migration creates endpoint policy tables and a shared `AuthorizationRevisions` row. The `AccessPolicies` table remains in the current model for the older resource/action API, but its rows have no effect on endpoint decisions. Provision endpoint policies before adopting the middleware.
 
-Each service has a single initial migration for a fresh database. User Management creates tenant-scoped users and roles with generated role IDs; Access Control stores role grants by those IDs. No legacy string-role data is copied. Role codes are unique per tenant and display names may repeat. User Management enforces that assigned role IDs belong to the user's tenant; Access Control has no cross-database foreign key to its role catalog.
+Each service has a single initial migration for a fresh database. User Management creates tenant-scoped users and UOs and UO-scoped roles with generated role IDs; Access Control stores policy and role grants by those IDs and UO ID. No legacy string-role data is copied. Role codes are unique per UO and display names may repeat. User Management enforces that assigned role IDs belong to the user's tenant and UO; Access Control has no cross-database foreign key to its role catalog. Deleting a UO tombstones its ID, retaining referenced rows for audit while blocking resolution and role assignment. Access Control policy and grant rows for that ID require separate cleanup. Already cached resolutions may remain effective for up to five seconds.
 
 Each service instance holds a bounded, five-second cache of policy rows and role grant sets. Concurrent misses for the same key share one database load. An administration write updates the revision in the same transaction as the policy or grant change, then clears the local cache. Other instances poll the revision every second and clear their caches when it changes. Entry expiration is the five-second fallback if a poll fails or an out-of-band database write does not advance the revision. This defines the accepted revocation delay: up to five seconds for already cached inputs, except a request already in flight. The cache stores policy and grant data, not per-user Permit decisions.
 
@@ -45,7 +46,8 @@ If SQL Server becomes unavailable, an entry already in cache can still be used u
 | Protected endpoint, caller not authenticated | `401` |
 | Protected endpoint, matching role entitlement | Continue |
 | Protected endpoint, no matching entitlement | `403` |
-| Matched endpoint without policy | `403` |
+| Matched endpoint without policy, authenticated caller | `403` |
+| Matched endpoint without public policy, anonymous caller | `401` |
 | Decision service unavailable or invalid response | `503` |
 | Route not matched by ASP.NET Core | Host handles `404` |
 | Path explicitly in local `ExcludedPaths` | Continue without central decision |

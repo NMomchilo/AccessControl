@@ -1,0 +1,84 @@
+{
+  "TimestampUtc": "2026-11-10T13:51:40.8874433+00:00",
+  "Runtime": ".NET 10.0.10",
+  "Os": "Microsoft Windows 10.0.22631",
+  "ProcessorCount": 20,
+  "Authentication": "Locally signed RS256 JWT and benchmark Gateway identity, validated on every request",
+  "Settings": {
+    "Requests": 200,
+    "Concurrency": [
+      1,
+      8
+    ],
+    "UserCount": 10,
+    "NewUsers": 20,
+    "Output": "benchmarks/results/2026-11-10-uo/access-flow-sqlserver.json"
+  },
+  "Results": [
+    {
+      "Scenario": "one warm user",
+      "Concurrency": 1,
+      "Requests": 200,
+      "RequestsPerSecond": 560.4784243830534,
+      "P50Ms": 1.6172,
+      "P95Ms": 2.4337,
+      "P99Ms": 3.0856,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 200,
+      "ControllerCalls": 200
+    },
+    {
+      "Scenario": "10 existing users",
+      "Concurrency": 1,
+      "Requests": 200,
+      "RequestsPerSecond": 522.3124023602253,
+      "P50Ms": 1.8171,
+      "P95Ms": 2.6158,
+      "P99Ms": 3.0794,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 200,
+      "ControllerCalls": 200
+    },
+    {
+      "Scenario": "one warm user",
+      "Concurrency": 8,
+      "Requests": 200,
+      "RequestsPerSecond": 2014.2244530877053,
+      "P50Ms": 2.4476,
+      "P95Ms": 13.034,
+      "P99Ms": 24.0607,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 200,
+      "ControllerCalls": 200
+    },
+    {
+      "Scenario": "10 existing users",
+      "Concurrency": 8,
+      "Requests": 200,
+      "RequestsPerSecond": 3311.9327280224284,
+      "P50Ms": 2.1653,
+      "P95Ms": 2.7922,
+      "P99Ms": 5.3723,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 200,
+      "ControllerCalls": 200
+    },
+    {
+      "Scenario": "new user per request",
+      "Concurrency": 8,
+      "Requests": 20,
+      "RequestsPerSecond": 121.2406311302294,
+      "P50Ms": 42.2723,
+      "P95Ms": 110.9692,
+      "P99Ms": 111.3309,
+      "UserResolutions": 20,
+      "RevisionPolls": 1,
+      "AccessDecisions": 20,
+      "ControllerCalls": 20
+    }
+  ]
+}

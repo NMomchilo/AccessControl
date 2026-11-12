@@ -11,7 +11,8 @@ using UserManagement.Contracts;
 using UserManagement.Infrastructure.Database;
 
 const string oid = "9155ff4d-2708-4770-b87e-e238645ec5df";
-UserIdentityRequest request = new("default", oid, "benchmark@example.com", "Benchmark User");
+UserIdentityRequest request = new("default", Guid.Parse("33333333-3333-3333-3333-333333333333"),
+    "Benchmark Organization", oid, "benchmark@example.com", "Benchmark User");
 int count = 5000;
 int concurrency = 16;
 string database = "sqlite";
@@ -87,7 +88,8 @@ else
         }
 
         SqlUserStore store = new(db, NullLogger<SqlUserStore>.Instance);
-        await store.ResolveAsync(request.TenantId, request.ObjectId, request.Email, request.DisplayName, CancellationToken.None);
+        await store.ResolveAsync(request.TenantId, request.UnitOrganizationId, request.UnitOrganizationName,
+            request.ObjectId, request.Email, request.DisplayName, CancellationToken.None);
     }
 
     source = new StoreClient(dbOptions);
@@ -169,9 +171,11 @@ internal sealed class StoreClient(DbContextOptions<UserManagementDbContext> opti
         Interlocked.Increment(ref _calls);
         await using UserManagementDbContext db = new(options);
         SqlUserStore store = new(db, NullLogger<SqlUserStore>.Instance);
-        UserManagement.Domain.ManagedUser user = await store.ResolveAsync(request.TenantId, request.ObjectId,
+        UserManagement.Domain.ManagedUser user = await store.ResolveAsync(request.TenantId,
+            request.UnitOrganizationId, request.UnitOrganizationName, request.ObjectId,
             request.Email, request.DisplayName, cancellationToken);
-        return new UserIdentityResponse(user.Id, user.TenantId, user.IsActive,
+        return new UserIdentityResponse(user.Id, user.TenantId, user.UnitOrganizationId,
+            user.UnitOrganizationName, user.IsActive,
             user.Roles.Select(role => new UserRoleInfo(role.Id, role.Code, role.DisplayName)).ToArray());
     }
 }

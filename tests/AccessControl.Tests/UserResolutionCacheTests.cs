@@ -7,7 +7,9 @@ namespace AccessControl.Tests;
 
 public sealed class UserResolutionCacheTests
 {
-    private static readonly UserIdentityRequest Request = new("default", "9155ff4d-2708-4770-b87e-e238645ec5df", null, null);
+    private static readonly Guid OrganizationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static readonly UserIdentityRequest Request = new("default", OrganizationId, "Alpha",
+        "9155ff4d-2708-4770-b87e-e238645ec5df", null, null);
     private static readonly Guid Reviewer = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly Guid Manager = Guid.Parse("33333333-3333-3333-3333-333333333333");
 
@@ -33,6 +35,18 @@ public sealed class UserResolutionCacheTests
         await cache.ResolveAsync(Request with { TenantId = "tenant-b" }, CancellationToken.None);
         await cache.ResolveAsync(Request, CancellationToken.None);
 
+        Assert.Equal(2, source.Calls);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_SameOidInDifferentOrganizations_UsesSeparateEntriesAsync()
+    {
+        CountingClient source = new();
+        using UserResolutionCache cache = CreateCache(source);
+        await cache.ResolveAsync(Request, CancellationToken.None);
+        await cache.ResolveAsync(Request with { UnitOrganizationId = Guid.NewGuid(), UnitOrganizationName = "Beta" },
+            CancellationToken.None);
+        await cache.ResolveAsync(Request, CancellationToken.None);
         Assert.Equal(2, source.Calls);
     }
 
@@ -255,6 +269,6 @@ public sealed class UserResolutionCacheTests
     }
 
     private static UserIdentityResponse Response(string code, string tenantId = "default") =>
-        new(Guid.NewGuid(), tenantId, true,
+        new(Guid.NewGuid(), tenantId, OrganizationId, "Alpha", true,
             [new UserRoleInfo(code == "reviewer" ? Reviewer : Manager, code, code)]);
 }
