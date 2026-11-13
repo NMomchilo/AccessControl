@@ -96,6 +96,14 @@ public sealed class SqlEntitlementCatalog(AccessControlDbContext db, Authorizati
         return new EntitlementPageResponse(items, page, pageSize, totalCount);
     }
 
+    public Task<EntitlementInfo?> GetAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
+        CancellationToken cancellationToken) =>
+        db.Entitlements.AsNoTracking().Where(value => value.TenantId == tenantId &&
+                value.UnitOrganizationId == unitOrganizationId && value.Id == entitlementId)
+            .Select(value => new EntitlementInfo(value.Id, value.TenantId, value.UnitOrganizationId,
+                value.Code, value.DisplayName, value.IsActive))
+            .SingleOrDefaultAsync(cancellationToken);
+
     private async Task IncrementRevisionAsync(CancellationToken cancellationToken)
     {
         int changed = await db.AuthorizationRevisions.Where(value => value.Id == 1)

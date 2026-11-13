@@ -16,6 +16,47 @@ public sealed class UserManagementStoreTests
     private static readonly Guid OtherOrganizationId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
     [Fact]
+    public async Task AdminReads_ShowScopedAssignmentsAndFindEmailWithoutProvisioningAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using UserManagementDbContext db = CreateDb(connection);
+        await db.Database.EnsureCreatedAsync();
+        UserManagementService service = CreateService(db);
+        await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, "Alice@Example.com", "Alice"), CancellationToken.None);
+        await service.ResolveAsync(new("default", OtherOrganizationId, "Beta", Oid, "Alice@Example.com", "Alice"), CancellationToken.None);
+        RoleInfo extra = await service.CreateRoleAsync(new("default", OrganizationId, "approver", "Approver"), CancellationToken.None);
+        await service.ReplaceRolesAsync("default", OrganizationId, Oid, new([extra.RoleId]), CancellationToken.None);
+        Assert.True(await service.SetRoleActiveAsync("default", OrganizationId, extra.RoleId,
+            new SetActiveRequest(false), CancellationToken.None));
+
+        PagedResult<UserSummary> users = (await service.GetUsersPageAsync("default", null, 1, 10, CancellationToken.None))!;
+        Assert.Single(users.Items);
+        Assert.Equal(2, users.Items.Single().Memberships.Count);
+        Assert.Equal([extra.RoleId], users.Items.Single().Memberships.Single(x => x.UnitOrganizationId == OrganizationId)
+            .Roles.Select(x => x.RoleId));
+        Assert.False(users.Items.Single().Memberships.Single(x => x.UnitOrganizationId == OrganizationId)
+            .Roles.Single().IsActive);
+        Assert.Equal("reviewer", users.Items.Single().Memberships.Single(x => x.UnitOrganizationId == OtherOrganizationId)
+            .Roles.Single().Code);
+
+        PagedResult<UserSummary> matches = (await service.GetUsersPageAsync("default", OrganizationId, 1, 10,
+            CancellationToken.None, "alice@example.com"))!;
+        Assert.Single(matches.Items);
+        Assert.Single(matches.Items.Single().Memberships);
+        Assert.Empty((await service.GetUsersPageAsync("default", OrganizationId, 1, 10, CancellationToken.None,
+            "missing@example.com"))!.Items);
+        Assert.NotNull(await service.GetRoleAsync("default", OrganizationId, extra.RoleId, CancellationToken.None));
+        Assert.Null(await service.GetRoleAsync("default", OtherOrganizationId, extra.RoleId, CancellationToken.None));
+
+        string secondOid = Guid.NewGuid().ToString("D");
+        await service.ResolveAsync(new("default", OrganizationId, "Alpha", secondOid, "ALICE@example.com", "Other"),
+            CancellationToken.None);
+        Assert.Equal(2, (await service.GetUsersPageAsync("default", OrganizationId, 1, 10,
+            CancellationToken.None, "alice@example.com"))!.TotalCount);
+    }
+
+    [Fact]
     public async Task ResolveAsync_FirstSignIn_CreatesReviewerAndReusesUserAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");

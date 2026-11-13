@@ -7,8 +7,18 @@ namespace AccessControl.Service.Controllers;
 
 [ApiController]
 [Route("v1/policies")]
-public sealed class PoliciesController(AuthorizationService authorizationService, ILogger<PoliciesController> logger) : ControllerBase
+public sealed class PoliciesController(AuthorizationService authorizationService, PolicyCatalogService policyCatalog,
+    ILogger<PoliciesController> logger) : ControllerBase
 {
+    [HttpGet("search")]
+    [ProducesResponseType(typeof(PolicyPageResponse), StatusCodes.Status200OK)]
+    public Task<PolicyPageResponse> SearchAsync([FromQuery] string tenantId,
+        [FromQuery] Guid? unitOrganizationId, [FromQuery] string? module, [FromQuery] string? httpMethod,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 100,
+        CancellationToken cancellationToken = default) =>
+        policyCatalog.SearchAsync(tenantId, unitOrganizationId, module, httpMethod, page, pageSize,
+            cancellationToken);
+
     [HttpGet]
     [ProducesResponseType(typeof(PolicyRequest), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

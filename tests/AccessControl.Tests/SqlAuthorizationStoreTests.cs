@@ -18,6 +18,39 @@ public sealed class SqlAuthorizationStoreTests
     private static readonly Guid OtherOrganization = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
     [Fact]
+    public async Task PolicySearch_IsPagedScopedAndIncludesRequiredEntitlementsAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>()
+            .UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        SqlAuthorizationStore store = new(db, NullLogger<SqlAuthorizationStore>.Instance);
+        AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
+        EntitlementCatalogService entitlements = new(new SqlEntitlementCatalog(db),
+            NullLogger<EntitlementCatalogService>.Instance);
+        EntitlementInfo view = await entitlements.CreateAsync(new("tenant-a", Organization, "customers.view", "View"),
+            CancellationToken.None);
+        await service.UpsertPolicyAsync(new("tenant-a", "customers", "GET", "/customers/{id}", false,
+            [view.Id], Organization), CancellationToken.None);
+        await service.UpsertPolicyAsync(new("tenant-a", "customers", "GET", "/status", true,
+            [], Guid.Empty), CancellationToken.None);
+        PolicyCatalogService catalog = new(new SqlPolicyCatalog(db), NullLogger<PolicyCatalogService>.Instance);
+
+        PolicyPageResponse all = await catalog.SearchAsync("tenant-a", null, null, null, 1, 10,
+            CancellationToken.None);
+        Assert.Equal(2, all.TotalCount);
+        PolicyPageResponse scoped = await catalog.SearchAsync("tenant-a", Organization, "customers", "get",
+            1, 10, CancellationToken.None);
+        Assert.Single(scoped.Items);
+        Assert.Equal([view.Id], scoped.Items.Single().RequiredEntitlementIds);
+        Assert.Empty((await catalog.SearchAsync("tenant-b", null, null, null, 1, 10,
+            CancellationToken.None)).Items);
+        Assert.Single((await catalog.SearchAsync("tenant-a", null, null, null, 2, 1,
+            CancellationToken.None)).Items);
+    }
+
+    [Fact]
     public async Task RevisionPoller_KeepsShortLivedCacheDuringOutageAndClearsOnRecoveryAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");

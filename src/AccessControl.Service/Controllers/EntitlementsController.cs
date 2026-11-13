@@ -57,4 +57,15 @@ public sealed class EntitlementsController(EntitlementCatalogService catalog, IL
     public Task<EntitlementPageResponse> ListForOrganizationAsync(Guid id, [FromQuery] string tenantId,
         [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken cancellationToken) =>
         catalog.ListAsync(tenantId, id, page ?? 1, pageSize ?? 100, cancellationToken);
+
+    [HttpGet("entitlements/{id:guid}")]
+    [ProducesResponseType(typeof(EntitlementInfo), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetOneAsync(Guid id, [FromQuery] string tenantId,
+        [FromQuery] Guid unitOrganizationId, CancellationToken cancellationToken)
+    {
+        EntitlementInfo? entitlement = await catalog.GetAsync(tenantId, unitOrganizationId, id,
+            cancellationToken);
+        return entitlement is null ? NotFound() : Ok(entitlement);
+    }
 }

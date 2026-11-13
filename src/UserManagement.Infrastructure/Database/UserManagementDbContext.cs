@@ -22,6 +22,9 @@ public sealed class UserManagementDbContext(DbContextOptions<UserManagementDbCon
             entity.HasIndex(user => new { user.TenantId, user.ObjectId }).IsUnique();
             entity.HasAlternateKey(user => new { user.TenantId, user.Id });
             entity.Property(user => user.Email).HasMaxLength(320);
+            entity.Property(user => user.NormalizedEmail).HasMaxLength(320)
+                .HasComputedColumnSql("LOWER([Email])", stored: true);
+            entity.HasIndex(user => new { user.TenantId, user.NormalizedEmail });
             entity.Property(user => user.DisplayName).HasMaxLength(200).IsRequired();
             entity.Property(user => user.CreatedAt).IsRequired();
             entity.HasMany(user => user.Organizations).WithOne(membership => membership.User)

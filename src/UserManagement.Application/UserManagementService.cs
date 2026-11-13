@@ -32,19 +32,23 @@ public sealed class UserManagementService(IUserStore store, IOptions<UserManagem
     }
 
     public async Task<PagedResult<UserSummary>?> GetUsersPageAsync(string tenantId, Guid? unitOrganizationId,
-        int page, int pageSize, CancellationToken cancellationToken)
+        int page, int pageSize, CancellationToken cancellationToken, string? email = null)
     {
         string normalizedTenant = NormalizeTenant(tenantId);
         int offset = ValidatePage(page, pageSize);
         if (unitOrganizationId.HasValue && await store.GetUnitOrganizationAsync(normalizedTenant,
                 NormalizeOrganizationId(unitOrganizationId.Value), cancellationToken) is null)
             return null;
+        string? normalizedEmail = email is null ? null : NormalizeRequired(email, 320, nameof(email)).ToLowerInvariant();
         PageSlice<ManagedUserSummary> slice = await store.GetUsersAsync(normalizedTenant, unitOrganizationId,
-            offset, pageSize, cancellationToken);
+            offset, pageSize, normalizedEmail, cancellationToken);
         logger.LogDebug("Listed users in tenant {TenantId}, organization {UnitOrganizationId}; page {Page}, count {Count}",
             normalizedTenant, unitOrganizationId, page, slice.Items.Count);
         return new PagedResult<UserSummary>(slice.Items.Select(user => new UserSummary(user.Id, user.ObjectId,
-            user.DisplayName, user.Email, user.IsActive)).ToArray(), slice.TotalCount, page, pageSize);
+            user.DisplayName, user.Email, user.IsActive, user.Memberships.Select(membership =>
+                new UserMembershipSummary(membership.UnitOrganizationId, membership.UnitOrganizationName,
+                    membership.Roles.Select(role => new UserRoleAssignmentInfo(role.Id, role.Code,
+                        role.DisplayName, role.IsActive)).ToArray())).ToArray())).ToArray(), slice.TotalCount, page, pageSize);
     }
 
     public async Task<bool> ReplaceRolesAsync(string tenantId, Guid unitOrganizationId, string objectId,
@@ -115,6 +119,16 @@ public sealed class UserManagementService(IUserStore store, IOptions<UserManagem
             normalizedTenant, unitOrganizationId, page, slice.Items.Count);
         return new PagedResult<RoleInfo>(slice.Items.Select(role => new RoleInfo(role.Id, role.TenantId,
             role.UnitOrganizationId, role.Code, role.DisplayName, role.IsActive)).ToArray(), slice.TotalCount, page, pageSize);
+    }
+
+    public async Task<RoleInfo?> GetRoleAsync(string tenantId, Guid unitOrganizationId, Guid roleId,
+        CancellationToken cancellationToken)
+    {
+        if (roleId == Guid.Empty) throw new ArgumentException("Role ID is required.", nameof(roleId));
+        ManagedRole? role = await store.GetRoleAsync(NormalizeTenant(tenantId),
+            NormalizeOrganizationId(unitOrganizationId), roleId, cancellationToken);
+        return role is null ? null : new RoleInfo(role.Id, role.TenantId, role.UnitOrganizationId,
+            role.Code, role.DisplayName, role.IsActive);
     }
 
     public async Task<UnitOrganizationInfo> CreateUnitOrganizationAsync(CreateUnitOrganizationRequest request,

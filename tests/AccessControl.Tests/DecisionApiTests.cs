@@ -79,6 +79,34 @@ public sealed class DecisionApiTests
             $"/v1/entitlements/{createdItem.Id:D}/display-name?tenantId=tenant-a&unitOrganizationId={Guid.NewGuid():D}",
             new UpdateEntitlementDisplayNameRequest("Wrong scope"));
         Assert.Equal(HttpStatusCode.NotFound, wrongScope.StatusCode);
+        using HttpResponseMessage one = await SendAdminAsync(client, HttpMethod.Get,
+            $"/v1/entitlements/{createdItem.Id:D}?tenantId=tenant-a&unitOrganizationId={Organization:D}",
+            (object?)null);
+        Assert.Equal(HttpStatusCode.OK, one.StatusCode);
+        Assert.Equal(createdItem.Id, (await one.Content.ReadFromJsonAsync<EntitlementInfo>())?.Id);
+        using HttpResponseMessage missingOne = await SendAdminAsync(client, HttpMethod.Get,
+            $"/v1/entitlements/{createdItem.Id:D}?tenantId=tenant-a&unitOrganizationId={Guid.NewGuid():D}",
+            (object?)null);
+        Assert.Equal(HttpStatusCode.NotFound, missingOne.StatusCode);
+    }
+
+    [Fact]
+    public async Task PolicySearch_RequiresAdministratorAndReturnsPageAsync()
+    {
+        await using ApiFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+        using HttpRequestMessage denied = new(HttpMethod.Get, "/v1/policies/search?tenantId=tenant-a");
+        denied.Headers.Add("X-Access-Control-Key", "decision-test-key");
+        using HttpResponseMessage deniedResponse = await client.SendAsync(denied);
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedResponse.StatusCode);
+
+        using HttpResponseMessage found = await SendAdminAsync(client, HttpMethod.Get,
+            "/v1/policies/search?tenantId=tenant-a&page=1&pageSize=10", (object?)null);
+        Assert.Equal(HttpStatusCode.OK, found.StatusCode);
+        Assert.Single((await found.Content.ReadFromJsonAsync<PolicyPageResponse>())!.Items);
+        using HttpResponseMessage invalid = await SendAdminAsync(client, HttpMethod.Get,
+            "/v1/policies/search?tenantId=tenant-a&pageSize=101", (object?)null);
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
     }
 
     [Fact]
@@ -255,7 +283,7 @@ public sealed class DecisionApiTests
 
     private static async Task<HttpResponseMessage> SendAdminAsync<T>(HttpClient client, HttpMethod method, string path, T body)
     {
-        using HttpRequestMessage message = new(method, path) { Content = JsonContent.Create(body) };
+        using HttpRequestMessage message = new(method, path) { Content = body is null ? null : JsonContent.Create(body) };
         message.Headers.Add("X-Access-Control-Key", "admin-test-key");
         return await client.SendAsync(message);
     }
@@ -272,6 +300,7 @@ public sealed class DecisionApiTests
             {
                 services.AddScoped<IAuthorizationStore, FakeStore>();
                 services.AddScoped<IEntitlementCatalog, FakeEntitlementCatalog>();
+                services.AddScoped<IPolicyCatalog, FakePolicyCatalog>();
                 foreach (ServiceDescriptor descriptor in services.Where(descriptor =>
                     descriptor.ServiceType == typeof(IHostedService) &&
                     descriptor.ImplementationType == typeof(AuthorizationCacheInvalidationService)).ToArray())
@@ -313,6 +342,11 @@ public sealed class DecisionApiTests
                 ? new EntitlementInfo(entitlementId, tenantId, unitOrganizationId, "customers.export", displayName, true)
                 : null);
 
+        public Task<EntitlementInfo?> GetAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
+            CancellationToken cancellationToken) => Task.FromResult<EntitlementInfo?>(
+                unitOrganizationId == Organization ? new EntitlementInfo(entitlementId, tenantId,
+                    unitOrganizationId, "customers.view", "View customers", true) : null);
+
         public Task<EntitlementPageResponse> ListAsync(string tenantId, Guid? unitOrganizationId, int page,
             int pageSize, CancellationToken cancellationToken)
         {
@@ -322,5 +356,13 @@ public sealed class DecisionApiTests
                     value, value, true)).ToArray(),
                 page, pageSize, values.Length));
         }
+    }
+
+    private sealed class FakePolicyCatalog : IPolicyCatalog
+    {
+        public Task<PolicyPageResponse> SearchAsync(string tenantId, Guid? unitOrganizationId,
+            string? module, string? httpMethod, int page, int pageSize, CancellationToken cancellationToken) =>
+            Task.FromResult(new PolicyPageResponse([new PolicyRequest(tenantId, "customers", "GET",
+                "/customers/{id}", false, [TestEntitlements.View], Organization)], page, pageSize, 1));
     }
 }

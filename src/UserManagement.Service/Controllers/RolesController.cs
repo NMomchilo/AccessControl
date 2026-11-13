@@ -19,6 +19,16 @@ public sealed class RolesController(UserManagementService service, ILogger<Roles
         return result is null ? NotFound() : Ok(result);
     }
 
+    [HttpGet("{roleId:guid}")]
+    [ProducesResponseType(typeof(RoleInfo), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetOneAsync(Guid roleId, [FromQuery] string tenantId,
+        [FromQuery] Guid unitOrganizationId, CancellationToken cancellationToken)
+    {
+        RoleInfo? role = await service.GetRoleAsync(tenantId, unitOrganizationId, roleId, cancellationToken);
+        return role is null ? NotFound() : Ok(role);
+    }
+
     [HttpPost]
     [ProducesResponseType(typeof(RoleInfo), StatusCodes.Status201Created)]
     public async Task<IActionResult> CreateAsync([FromBody] CreateRoleRequest request, CancellationToken cancellationToken)

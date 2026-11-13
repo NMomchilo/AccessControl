@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "User Management Service API",
-    "version": "5.1.0",
+    "version": "5.2.0",
     "description": "Tenant and unit-organization scoped user resolution, roles, and organization administration. The consuming API validates both the user JWT and trusted gateway UO assertion. Client-supplied headers are not trusted organization identity."
   },
   "servers": [
@@ -188,6 +188,29 @@
           "500": {
             "$ref": "#/components/responses/ServiceError"
           }
+        }
+      }
+    },
+    "/v1/users/by-email": {
+      "get": {
+        "tags": ["Administration"],
+        "summary": "Find users by email",
+        "description": "Returns a page of matching users because email is not a unique identity. Matching ignores letter case. Roles are grouped by active unit-organization membership.",
+        "operationId": "findUsersByEmail",
+        "security": [{ "AdministratorApiKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "email", "in": "query", "required": true, "schema": { "type": "string", "maxLength": 320 } },
+          { "name": "unitOrganizationId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PageSize" }
+        ],
+        "responses": {
+          "200": { "description": "Matching users (empty items when none)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PagedUsers" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "Unit organization not found when filtering by organization" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
         }
       }
     },
@@ -709,7 +732,7 @@
             "AdministratorApiKey": []
           }
         ],
-        "description": "Includes inactive users. Stable order by objectId and userId. Empty items for a page beyond the end.",
+        "description": "Includes inactive users and roles grouped by active unit-organization membership. Stable order by objectId and userId. Empty items for a page beyond the end.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantId"
@@ -736,7 +759,8 @@
                       "objectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
                       "displayName": "Example User",
                       "email": "user@example.com",
-                      "isActive": true
+                      "isActive": true,
+                      "memberships": [{ "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "unitOrganizationName": "Customer Operations", "roles": [{ "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059", "code": "reviewer", "displayName": "Reviewer", "isActive": true }] }]
                     }
                   ],
                   "totalCount": 1,
@@ -799,7 +823,8 @@
                       "objectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
                       "displayName": "Example User",
                       "email": "user@example.com",
-                      "isActive": true
+                      "isActive": true,
+                      "memberships": [{ "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "unitOrganizationName": "Customer Operations", "roles": [{ "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059", "code": "reviewer", "displayName": "Reviewer", "isActive": true }] }]
                     }
                   ],
                   "totalCount": 1,
@@ -888,6 +913,26 @@
           "404": {
             "description": "UO not found or tombstoned"
           }
+        }
+      }
+    },
+    "/v1/roles/{roleId}": {
+      "get": {
+        "tags": ["Administration"],
+        "summary": "Get a role in one tenant and unit organization",
+        "operationId": "getRoleById",
+        "security": [{ "AdministratorApiKey": [] }],
+        "parameters": [
+          { "name": "roleId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/UnitOrganizationId" }
+        ],
+        "responses": {
+          "200": { "description": "Role", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RoleInfo" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "Role not found in the selected scope" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
         }
       }
     },
@@ -1365,7 +1410,8 @@
           "objectId",
           "displayName",
           "isActive",
-          "email"
+          "email",
+          "memberships"
         ],
         "properties": {
           "userId": {
@@ -1386,7 +1432,30 @@
           },
           "isActive": {
             "type": "boolean"
+          },
+          "memberships": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/UserMembershipSummary" }
           }
+        }
+      },
+      "UserMembershipSummary": {
+        "type": "object",
+        "required": ["unitOrganizationId", "unitOrganizationName", "roles"],
+        "properties": {
+          "unitOrganizationId": { "type": "string", "format": "uuid" },
+          "unitOrganizationName": { "type": "string" },
+          "roles": { "type": "array", "items": { "$ref": "#/components/schemas/UserRoleAssignmentInfo" } }
+        }
+      },
+      "UserRoleAssignmentInfo": {
+        "type": "object",
+        "required": ["roleId", "code", "displayName", "isActive"],
+        "properties": {
+          "roleId": { "type": "string", "format": "uuid" },
+          "code": { "type": "string" },
+          "displayName": { "type": "string" },
+          "isActive": { "type": "boolean" }
         }
       },
       "PagedUsers": {

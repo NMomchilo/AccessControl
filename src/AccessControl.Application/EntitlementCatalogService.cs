@@ -63,6 +63,19 @@ public sealed class EntitlementCatalogService(IEntitlementCatalog catalog, ILogg
         return result;
     }
 
+    public async Task<EntitlementInfo?> GetAsync(string tenantId, Guid unitOrganizationId,
+        Guid entitlementId, CancellationToken cancellationToken)
+    {
+        string normalizedTenant = NormalizeTenant(tenantId);
+        if (unitOrganizationId == Guid.Empty || entitlementId == Guid.Empty)
+            throw new ArgumentException("Unit organization and entitlement IDs are required.");
+        EntitlementInfo? entitlement = await catalog.GetAsync(normalizedTenant, unitOrganizationId,
+            entitlementId, cancellationToken);
+        logger.LogDebug("Looked up entitlement {EntitlementId}; found {Found}", entitlementId,
+            entitlement is not null);
+        return entitlement;
+    }
+
     private static string NormalizeTenant(string value) => NormalizeText(value, 128, nameof(value)).ToLowerInvariant();
 
     private static string NormalizeText(string value, int maximumLength, string field)

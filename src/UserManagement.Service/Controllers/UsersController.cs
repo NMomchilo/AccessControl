@@ -15,6 +15,18 @@ public sealed class UsersController(UserManagementService service, ILogger<Users
         [FromQuery] int pageSize = 100, CancellationToken cancellationToken = default) =>
         Ok(await service.GetUsersPageAsync(tenantId, null, page, pageSize, cancellationToken));
 
+    [HttpGet("by-email")]
+    [ProducesResponseType(typeof(PagedResult<UserSummary>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetByEmailAsync([FromQuery] string tenantId, [FromQuery] string email,
+        [FromQuery] Guid? unitOrganizationId, [FromQuery] int page = 1, [FromQuery] int pageSize = 100,
+        CancellationToken cancellationToken = default)
+    {
+        PagedResult<UserSummary>? result = await service.GetUsersPageAsync(tenantId, unitOrganizationId,
+            page, pageSize, cancellationToken, email);
+        return result is null ? NotFound() : Ok(result);
+    }
+
     [HttpGet("revision")]
     [ProducesResponseType(typeof(long), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetRevisionAsync(CancellationToken cancellationToken)

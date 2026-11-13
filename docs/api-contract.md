@@ -83,7 +83,10 @@ The administrator can list registered entitlements, including disabled and unref
 
 - `GET /v1/entitlements?tenantId=default&page=1&pageSize=100` lists catalog entries across the tenant.
 - `GET /v1/unit-organizations/{id}/entitlements?tenantId=default&page=1&pageSize=100` lists entries in one UO. The all-zero GUID is invalid for this filtered route.
+- `GET /v1/entitlements/{id}?tenantId=default&unitOrganizationId=<uo-guid>` returns one entitlement in the selected scope, or `404`.
 
 Both return `{ "items": [{ "id": "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "tenantId": "default", "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "code": "customers.view", "displayName": "View customers", "isActive": true }], "totalCount": 1, "page": 1, "pageSize": 100 }`. Rows are ordered by UO ID, code, and entitlement ID. `page` starts at 1, `pageSize` must be 1–100, and invalid or overflowing pagination returns `400`. The endpoint requires the administrator key.
+
+`GET /v1/policies` still reads one policy by its complete tenant, UO ID, module, HTTP method, and route-template key. For frontend tables, `GET /v1/policies/search?tenantId=default&page=1&pageSize=100` returns a `PolicyPageResponse` with `items`, `totalCount`, `page`, and `pageSize`. Optional `unitOrganizationId`, `module`, and `httpMethod` filters narrow the results; an explicit all-zero UO ID selects global public policies. Each item includes the required entitlement IDs. Search is administrator-only, read-only, and queries the database directly rather than decision caches.
 
 The decision service trusts the consuming service's authenticated subject and role-ID claims; it does not query User Management. Keep decision credentials secret, use HTTPS, and bind callers to allowed modules and tenants before accepting mutually untrusted services. The initial migration creates the catalog and ID-based grant and policy relationships in an empty database; it does not import legacy strings.

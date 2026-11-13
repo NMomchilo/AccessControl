@@ -52,6 +52,9 @@ public sealed class UserManagementApiTests
         Assert.Equal(HttpStatusCode.OK, listedRoles.StatusCode);
         Assert.Contains((await listedRoles.Content.ReadFromJsonAsync<PagedResult<RoleInfo>>())!.Items, role =>
             role.RoleId == admin!.RoleId);
+        using HttpResponseMessage singleRole = await SendAdminAsync(client, HttpMethod.Get,
+            $"/v1/roles/{admin!.RoleId:D}?tenantId=default&unitOrganizationId={OrganizationId:D}");
+        Assert.Equal(admin, await singleRole.Content.ReadFromJsonAsync<RoleInfo>());
         long revisionBefore = await ReadRevisionAsync(client);
 
         using HttpRequestMessage blockedWrite = new(HttpMethod.Put, $"/v1/users/{Oid}/roles?tenantId=default&unitOrganizationId={OrganizationId:D}")
@@ -76,6 +79,14 @@ public sealed class UserManagementApiTests
         UserIdentityResponse? updated = await secondResponse.Content.ReadFromJsonAsync<UserIdentityResponse>();
         Assert.NotNull(updated);
         Assert.Equal([admin!.RoleId], updated.Roles.Select(role => role.RoleId).ToArray());
+        using HttpResponseMessage users = await SendAdminAsync(client, HttpMethod.Get,
+            "/v1/users?tenantId=default");
+        Assert.Equal([admin.RoleId], (await users.Content.ReadFromJsonAsync<PagedResult<UserSummary>>())!.Items
+            .Single().Memberships.Single().Roles.Select(role => role.RoleId));
+        using HttpResponseMessage byEmail = await SendAdminAsync(client, HttpMethod.Get,
+            "/v1/users/by-email?tenantId=default&email=USER%40EXAMPLE.COM");
+        Assert.Equal(HttpStatusCode.OK, byEmail.StatusCode);
+        Assert.Equal(Oid, (await byEmail.Content.ReadFromJsonAsync<PagedResult<UserSummary>>())!.Items.Single().ObjectId);
     }
 
     [Fact]

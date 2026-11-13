@@ -17,6 +17,21 @@ public sealed class EntitlementCatalogTests
     private static readonly Guid Role = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
     [Fact]
+    public async Task GetEntitlement_UsesTenantAndOrganizationScopeAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
+        EntitlementInfo created = await service.CreateAsync(new("tenant-a", OrganizationA, "customers.view", "View"), CancellationToken.None);
+
+        Assert.Equal(created, await service.GetAsync("tenant-a", OrganizationA, created.Id, CancellationToken.None));
+        Assert.Null(await service.GetAsync("tenant-a", OrganizationB, created.Id, CancellationToken.None));
+        Assert.Null(await service.GetAsync("tenant-b", OrganizationA, created.Id, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task RenameDisplayName_ChangesOnlyMetadataWithinItsScopeAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");

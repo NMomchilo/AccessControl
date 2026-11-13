@@ -139,9 +139,11 @@ Use the **client** key in User Management Swagger for `POST /v1/users/resolve` a
 
 Administrators can page through users with `GET /v1/users?tenantId=default&page=1&pageSize=100`, members of one UO with `GET /v1/unit-organizations/{id}/users`, and roles with `GET /v1/roles` or `GET /v1/unit-organizations/{id}/roles`. `GET /v1/entitlements` and `GET /v1/unit-organizations/{id}/entitlements` in Access Control list registered entitlements, including unreferenced and disabled entries. The administrator can disable a role through `PUT /v1/roles/{roleId}/active` in User Management or an entitlement through `PUT /v1/entitlements/{id}/active` in Access Control, sending `{ "isActive": false }`. An administrator can rename an entitlement with `PUT /v1/entitlements/{id}/display-name?tenantId=default&unitOrganizationId=<uo-guid>` and `{ "displayName": "View customer records" }`; the ID, code, grants, and policies stay the same. Disabled roles are omitted from resolved claims; disabled entitlements cannot satisfy policies. These endpoints use the administrator keys; page size is limited to 100. See the API references for response shapes and filters.
 
+For frontend administration, user list items now include roles grouped by active UO membership. `GET /v1/users/by-email?tenantId=default&email=user%40example.com` finds matching users without creating them; email can identify more than one account, so the result is paged. `GET /v1/roles/{roleId}` and `GET /v1/entitlements/{id}` read individual catalog entries using tenant and UO query parameters. `GET /v1/policies/search?tenantId=default` lists policies with optional UO, module, and HTTP method filters; the existing exact-key `GET /v1/policies` remains available. These administration calls require the service-side administrator credential; do not put it in browser code.
+
 `GET /v1/roles` now returns a paged object with an `items` array instead of a bare array. Update any administrator tooling that reads this endpoint when upgrading the contracts and client packages. The URL remains `/v1/roles`.
 
-The OpenAPI `info.version` values identify the current contract revisions (User Management 5.1.0, Access Control 5.1.0). The development service URLs still use `/v1` paths.
+The OpenAPI `info.version` values identify the current contract revisions (User Management 5.2.0, Access Control 5.2.0). The development service URLs still use `/v1` paths.
 
 ## Add both packages to another ASP.NET Core service
 
@@ -152,8 +154,8 @@ dotnet pack src/UserManagement.Contracts -c Release -o artifacts/packages
 dotnet pack src/UserManagement.Client -c Release -o artifacts/packages
 dotnet pack src/AccessControl.Contracts -c Release -o artifacts/packages
 dotnet pack src/AccessControl.Client -c Release -o artifacts/packages
-dotnet add <consumer-project.csproj> package UserManagement.Client --version 0.6.0 --source artifacts/packages
-dotnet add <consumer-project.csproj> package AccessControl.Client --version 0.8.0 --source artifacts/packages
+dotnet add <consumer-project.csproj> package UserManagement.Client --version 0.7.0 --source artifacts/packages
+dotnet add <consumer-project.csproj> package AccessControl.Client --version 0.9.0 --source artifacts/packages
 ```
 
 Configure JWT validation in the consuming service. Register both clients and put their middleware **after routing and authentication**, in this order:
@@ -190,7 +192,7 @@ The optional endpoint catalog writes `(module, HTTP method, route template)` ent
 
 For production, supply distinct credentials and connection strings through a secret store, restrict access to the service APIs and databases, and apply migrations as a deployment step. Development-only startup migration is disabled outside Development. The current Access Control decision key is shared among consuming services and the decision API trusts their submitted roles, subjects, modules, and tenants; bind caller credentials to their permitted scope before using this design across mutually untrusted services.
 
-Each service has one initial migration. User Management creates roles with `IsActive`; Access Control creates an entitlement catalog and foreign keys from role grants and policy requirements to entitlement IDs. It does not copy legacy string roles, entitlement strings, or existing data. These baselines require **empty databases**. Development uses `UserManagementRolesLocalDev` and `AccessControlEntitlementsLocalDev`; if either already has an earlier schema, use fresh empty database names or deliberately recreate those development databases after saving anything needed. Keep the two services and client packages on matching versions. New role assignments use IDs from User Management; Access Control does not maintain a cross-database foreign key to those roles.
+Each service has one initial migration. User Management also has an additive migration that adds an indexed, computed lowercase email column for administrator email searches; SQL Server computes it for existing users. User Management creates roles with `IsActive`; Access Control creates an entitlement catalog and foreign keys from role grants and policy requirements to entitlement IDs. It does not copy legacy string roles, entitlement strings, or existing data. The initial baselines require **empty databases**. Development uses `UserManagementRolesLocalDev` and `AccessControlEntitlementsLocalDev`; if either already has an earlier incompatible schema, use fresh empty database names or deliberately recreate those development databases after saving anything needed. Keep the two services and client packages on matching versions. New role assignments use IDs from User Management; Access Control does not maintain a cross-database foreign key to those roles.
 
 ## Local troubleshooting
 

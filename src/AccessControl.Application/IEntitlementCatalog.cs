@@ -12,4 +12,6 @@ public interface IEntitlementCatalog
         string displayName, CancellationToken cancellationToken);
     Task<EntitlementPageResponse> ListAsync(string tenantId, Guid? unitOrganizationId, int page, int pageSize,
         CancellationToken cancellationToken);
+    Task<EntitlementInfo?> GetAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
+        CancellationToken cancellationToken);
 }

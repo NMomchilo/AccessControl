@@ -8,6 +8,7 @@ public static class DependencyInjection
     {
         services.AddScoped<AuthorizationService>();
         services.AddScoped<EntitlementCatalogService>();
+        services.AddScoped<PolicyCatalogService>();
         return services;
     }
 }

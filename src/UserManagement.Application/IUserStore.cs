@@ -8,7 +8,9 @@ public interface IUserStore
         string objectId, string? email, string? displayName, CancellationToken cancellationToken);
     Task<ManagedUser?> GetAsync(string tenantId, Guid unitOrganizationId, string objectId, CancellationToken cancellationToken);
     Task<PageSlice<ManagedUserSummary>> GetUsersAsync(string tenantId, Guid? unitOrganizationId,
-        int offset, int pageSize, CancellationToken cancellationToken);
+        int offset, int pageSize, string? email, CancellationToken cancellationToken);
+    Task<ManagedRole?> GetRoleAsync(string tenantId, Guid unitOrganizationId, Guid roleId,
+        CancellationToken cancellationToken);
     Task<bool> ReplaceRolesAsync(string tenantId, Guid unitOrganizationId, string objectId,
         IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken);
     Task<bool> SetActiveAsync(string tenantId, string objectId, bool isActive, CancellationToken cancellationToken);

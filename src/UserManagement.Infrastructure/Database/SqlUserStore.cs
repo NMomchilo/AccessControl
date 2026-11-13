@@ -102,9 +102,11 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
     }
 
     public async Task<PageSlice<ManagedUserSummary>> GetUsersAsync(string tenantId, Guid? unitOrganizationId,
-        int offset, int pageSize, CancellationToken cancellationToken)
+        int offset, int pageSize, string? email, CancellationToken cancellationToken)
     {
         IQueryable<UserEntity> query = db.Users.AsNoTracking().Where(user => user.TenantId == tenantId);
+        if (email is not null)
+            query = query.Where(user => user.NormalizedEmail == email);
         if (unitOrganizationId.HasValue)
         {
             Guid organizationId = unitOrganizationId.Value;
@@ -112,12 +114,47 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
                 membership.UnitOrganizationId == organizationId));
         }
         int totalCount = await query.CountAsync(cancellationToken);
-        ManagedUserSummary[] items = await query.OrderBy(user => user.ObjectId).ThenBy(user => user.Id)
+        var users = await query.OrderBy(user => user.ObjectId).ThenBy(user => user.Id)
             .Skip(offset).Take(pageSize)
-            .Select(user => new ManagedUserSummary(user.Id, user.ObjectId, user.DisplayName,
-                user.Email, user.IsActive)).ToArrayAsync(cancellationToken);
+            .Select(user => new { user.Id, user.ObjectId, user.DisplayName, user.Email, user.IsActive })
+            .ToArrayAsync(cancellationToken);
+        if (users.Length == 0) return new PageSlice<ManagedUserSummary>([], totalCount);
+
+        Guid[] userIds = users.Select(user => user.Id).ToArray();
+        var memberships = await db.UnitOrganizationMemberships.AsNoTracking()
+            .Where(membership => membership.TenantId == tenantId && userIds.Contains(membership.UserId) &&
+                !membership.UnitOrganization.IsDeleted &&
+                (!unitOrganizationId.HasValue || membership.UnitOrganizationId == unitOrganizationId.Value))
+            .Select(membership => new { membership.UserId, membership.UnitOrganizationId,
+                OrganizationName = membership.UnitOrganization.Name }).ToArrayAsync(cancellationToken);
+        var assignments = await db.UserRoles.AsNoTracking()
+            .Where(assignment => assignment.TenantId == tenantId && userIds.Contains(assignment.UserId) &&
+                (!unitOrganizationId.HasValue || assignment.UnitOrganizationId == unitOrganizationId.Value))
+            .Select(assignment => new { assignment.UserId, assignment.UnitOrganizationId,
+                assignment.RoleId, assignment.Role.Code, assignment.Role.DisplayName, assignment.Role.IsActive })
+            .ToArrayAsync(cancellationToken);
+        var rolesByMembership = assignments.ToLookup(assignment => (assignment.UserId, assignment.UnitOrganizationId));
+        var membershipsByUser = memberships.ToLookup(membership => membership.UserId);
+        ManagedUserSummary[] items = users.Select(user => new ManagedUserSummary(user.Id, user.ObjectId,
+            user.DisplayName, user.Email, user.IsActive, membershipsByUser[user.Id]
+                .OrderBy(membership => membership.UnitOrganizationId)
+                .Select(membership => new ManagedUserMembershipSummary(membership.UnitOrganizationId,
+                    membership.OrganizationName, rolesByMembership[(user.Id, membership.UnitOrganizationId)]
+                        .OrderBy(assignment => assignment.Code).ThenBy(assignment => assignment.RoleId)
+                        .Select(assignment => new ManagedRole(assignment.RoleId, tenantId,
+                            membership.UnitOrganizationId, assignment.Code, assignment.DisplayName,
+                            assignment.IsActive)).ToArray())).ToArray())).ToArray();
         return new PageSlice<ManagedUserSummary>(items, totalCount);
     }
+
+    public async Task<ManagedRole?> GetRoleAsync(string tenantId, Guid unitOrganizationId, Guid roleId,
+        CancellationToken cancellationToken) =>
+        await db.Roles.AsNoTracking().Where(role => role.TenantId == tenantId &&
+                role.UnitOrganizationId == unitOrganizationId && role.Id == roleId &&
+                !role.UnitOrganization.IsDeleted)
+            .Select(role => new ManagedRole(role.Id, role.TenantId, role.UnitOrganizationId,
+                role.Code, role.DisplayName, role.IsActive))
+            .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<bool> ReplaceRolesAsync(string tenantId, Guid unitOrganizationId, string objectId,
         IReadOnlyList<Guid> roleIds,

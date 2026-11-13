@@ -126,6 +126,12 @@ namespace UserManagement.Infrastructure.Database.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<string>("NormalizedEmail")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)")
+                        .HasComputedColumnSql("LOWER([Email])", true);
+
                     b.Property<string>("ObjectId")
                         .IsRequired()
                         .HasMaxLength(36)
@@ -137,6 +143,8 @@ namespace UserManagement.Infrastructure.Database.Migrations
                         .HasColumnType("nvarchar(128)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "NormalizedEmail");
 
                     b.HasIndex("TenantId", "ObjectId")
                         .IsUnique();

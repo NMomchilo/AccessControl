@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Access Control Service API",
-    "version": "5.1.0",
+    "version": "5.2.0",
     "description": "Tenant and unit-organization scoped endpoint decisions and administration."
   },
   "servers": [
@@ -139,6 +139,29 @@
           "500": {
             "$ref": "#/components/responses/ServiceError"
           }
+        }
+      }
+    },
+    "/v1/policies/search": {
+      "get": {
+        "tags": ["Policies"],
+        "summary": "Search endpoint policies",
+        "description": "Lists policies in one tenant. Optional filters narrow by unit organization, module, and HTTP method. The all-zero unit organization ID selects global public policies.",
+        "operationId": "searchPolicies",
+        "security": [{ "AdminApiKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/TenantId" },
+          { "name": "unitOrganizationId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 128 } },
+          { "name": "httpMethod", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 16 } },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PageSize" }
+        ],
+        "responses": {
+          "200": { "description": "Page of policies", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PolicyPageResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
         }
       }
     },
@@ -578,6 +601,26 @@
           "500": {
             "$ref": "#/components/responses/ServiceError"
           }
+        }
+      }
+    },
+    "/v1/entitlements/{id}": {
+      "get": {
+        "tags": ["Administration"],
+        "summary": "Get an entitlement in one tenant and unit organization",
+        "operationId": "getEntitlementById",
+        "security": [{ "AdminApiKey": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/UnitOrganizationId" }
+        ],
+        "responses": {
+          "200": { "description": "Entitlement", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementInfo" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "Entitlement not found in the selected scope" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
         }
       }
     },
@@ -1060,6 +1103,16 @@
             "type": "string",
             "maxLength": 200
           }
+        }
+      },
+      "PolicyPageResponse": {
+        "type": "object",
+        "required": ["items", "page", "pageSize", "totalCount"],
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/PolicyRequest" } },
+          "page": { "type": "integer", "format": "int32", "minimum": 1 },
+          "pageSize": { "type": "integer", "format": "int32", "minimum": 1, "maximum": 100 },
+          "totalCount": { "type": "integer", "format": "int32", "minimum": 0 }
         }
       },
       "EntitlementInfo": {
