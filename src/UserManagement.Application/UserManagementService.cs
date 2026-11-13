@@ -87,7 +87,18 @@ public sealed class UserManagementService(IUserStore store, IOptions<UserManagem
             nameof(request.DisplayName)) ?? throw new ArgumentException("Display name is required.", nameof(request));
         ManagedRole role = await store.CreateRoleAsync(tenantId, organizationId, code, displayName, cancellationToken);
         logger.LogInformation("Created role {RoleId} in tenant {TenantId}", role.Id, tenantId);
-        return new RoleInfo(role.Id, role.TenantId, role.UnitOrganizationId, role.Code, role.DisplayName);
+        return new RoleInfo(role.Id, role.TenantId, role.UnitOrganizationId, role.Code, role.DisplayName, role.IsActive);
+    }
+
+    public async Task<bool> SetRoleActiveAsync(string tenantId, Guid unitOrganizationId, Guid roleId,
+        SetActiveRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (roleId == Guid.Empty) throw new ArgumentException("Role ID is required.", nameof(roleId));
+        bool found = await store.SetRoleActiveAsync(NormalizeTenant(tenantId), NormalizeOrganizationId(unitOrganizationId),
+            roleId, request.IsActive, cancellationToken);
+        logger.LogInformation("Role {RoleId} active status set to {IsActive}; found {Found}", roleId, request.IsActive, found);
+        return found;
     }
 
     public async Task<PagedResult<RoleInfo>?> GetRolesPageAsync(string tenantId, Guid? unitOrganizationId,
@@ -103,7 +114,7 @@ public sealed class UserManagementService(IUserStore store, IOptions<UserManagem
         logger.LogDebug("Listed roles in tenant {TenantId}, organization {UnitOrganizationId}; page {Page}, count {Count}",
             normalizedTenant, unitOrganizationId, page, slice.Items.Count);
         return new PagedResult<RoleInfo>(slice.Items.Select(role => new RoleInfo(role.Id, role.TenantId,
-            role.UnitOrganizationId, role.Code, role.DisplayName)).ToArray(), slice.TotalCount, page, pageSize);
+            role.UnitOrganizationId, role.Code, role.DisplayName, role.IsActive)).ToArray(), slice.TotalCount, page, pageSize);
     }
 
     public async Task<UnitOrganizationInfo> CreateUnitOrganizationAsync(CreateUnitOrganizationRequest request,

@@ -62,9 +62,10 @@ public sealed class SqlAuthorizationStoreTests
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
 
         Assert.Empty(await store.GetEntitlementsAsync("tenant", Organization, [], CancellationToken.None));
+        await SeedAsync(context, "tenant");
         await context.AuthorizationRevisions.ExecuteDeleteAsync();
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.ReplaceRoleEntitlementsAsync(
-            "tenant", Organization, Advisor, ["customers.view"], CancellationToken.None));
+            "tenant", Organization, Advisor, [TestEntitlements.View], CancellationToken.None));
         Assert.Empty(await context.RoleEntitlements.ToListAsync());
     }
 
@@ -138,10 +139,11 @@ public sealed class SqlAuthorizationStoreTests
         await using AccessControlDbContext context = new(
             new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
         await context.Database.EnsureCreatedAsync();
+        await SeedAsync(context, "tenant");
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
-        await store.ReplaceRoleEntitlementsAsync("tenant", Organization, Advisor, ["customers.view"], CancellationToken.None);
+        await store.ReplaceRoleEntitlementsAsync("tenant", Organization, Advisor, [TestEntitlements.View], CancellationToken.None);
 
-        Assert.Contains("customers.view", await store.GetEntitlementsAsync("tenant", Organization, [Advisor], CancellationToken.None));
+        Assert.Contains(TestEntitlements.View, await store.GetEntitlementsAsync("tenant", Organization, [Advisor], CancellationToken.None));
         Assert.Empty(await store.GetEntitlementsAsync("tenant", OtherOrganization, [Advisor], CancellationToken.None));
     }
     [Fact]
@@ -153,13 +155,14 @@ public sealed class SqlAuthorizationStoreTests
             .UseSqlite(connection).Options;
         await using AccessControlDbContext context = new(options);
         await context.Database.EnsureCreatedAsync();
+        await SeedAsync(context, "tenant");
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
         Assert.Equal(0, await store.GetRevisionAsync(CancellationToken.None));
 
         await store.UpsertPolicyAsync(new EndpointPolicy("tenant", "customers", "GET", "/customers/{id}",
-            false, ["customers.view"], Organization), CancellationToken.None);
+            false, [TestEntitlements.View], Organization), CancellationToken.None);
         Assert.Equal(1, await store.GetRevisionAsync(CancellationToken.None));
-        await store.ReplaceRoleEntitlementsAsync("tenant", Organization, Advisor, ["customers.view"], CancellationToken.None);
+        await store.ReplaceRoleEntitlementsAsync("tenant", Organization, Advisor, [TestEntitlements.View], CancellationToken.None);
         Assert.Equal(2, await store.GetRevisionAsync(CancellationToken.None));
         await store.DeletePolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
         Assert.Equal(3, await store.GetRevisionAsync(CancellationToken.None));
@@ -174,8 +177,9 @@ public sealed class SqlAuthorizationStoreTests
             .UseSqlite(connection).Options;
         await using AccessControlDbContext writerContext = new(options);
         await writerContext.Database.EnsureCreatedAsync();
+        await SeedAsync(writerContext, "tenant");
         SqlAuthorizationStore writer = new(writerContext, NullLogger<SqlAuthorizationStore>.Instance);
-        EndpointPolicy policy = new("tenant", "customers", "GET", "/customers/{id}", false, ["customers.view"], Organization);
+        EndpointPolicy policy = new("tenant", "customers", "GET", "/customers/{id}", false, [TestEntitlements.View], Organization);
         await writer.UpsertPolicyAsync(policy, CancellationToken.None);
 
         ServiceCollection services = new();
@@ -192,7 +196,7 @@ public sealed class SqlAuthorizationStoreTests
         await poller.CheckOnceAsync(CancellationToken.None);
         Assert.False((await reader.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None))?.IsPublic);
 
-        await writer.UpsertPolicyAsync(policy with { IsPublic = true, RequiredEntitlements = [] }, CancellationToken.None);
+        await writer.UpsertPolicyAsync(policy with { IsPublic = true, RequiredEntitlementIds = [] }, CancellationToken.None);
         Assert.False((await reader.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None))?.IsPublic);
         await poller.CheckOnceAsync(CancellationToken.None);
 
@@ -208,16 +212,17 @@ public sealed class SqlAuthorizationStoreTests
             .UseSqlite(connection).Options;
         await using AccessControlDbContext context = new(options);
         await context.Database.EnsureCreatedAsync();
+        await SeedAsync(context, "tenant-a");
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
-        EndpointPolicy protectedPolicy = new("tenant-a", "customers", "GET", "/customers/{id}", false, ["customers.view"], Organization);
+        EndpointPolicy protectedPolicy = new("tenant-a", "customers", "GET", "/customers/{id}", false, [TestEntitlements.View], Organization);
         await store.UpsertPolicyAsync(protectedPolicy, CancellationToken.None);
 
-        await store.UpsertPolicyAsync(protectedPolicy with { IsPublic = true, RequiredEntitlements = [] }, CancellationToken.None);
+        await store.UpsertPolicyAsync(protectedPolicy with { IsPublic = true, RequiredEntitlementIds = [] }, CancellationToken.None);
         EndpointPolicy? result = await store.GetPolicyAsync("tenant-a", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.True(result.IsPublic);
-        Assert.Empty(result.RequiredEntitlements);
+        Assert.Empty(result.RequiredEntitlementIds);
         await store.DeletePolicyAsync("tenant-a", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
         Assert.Null(await store.GetPolicyAsync("tenant-a", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None));
     }
@@ -231,16 +236,28 @@ public sealed class SqlAuthorizationStoreTests
             .UseSqlite(connection).Options;
         await using AccessControlDbContext context = new(options);
         await context.Database.EnsureCreatedAsync();
+        await SeedAsync(context, "tenant-a");
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
         DecisionRequest request = new("alice", [Advisor], "customers", "GET", "/customers/{id}", "tenant-a", Organization);
-        await store.UpsertPolicyAsync(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", false, ["customers.view"], Organization), CancellationToken.None);
-        await store.ReplaceRoleEntitlementsAsync("tenant-a", Organization, Advisor, ["customers.view"], CancellationToken.None);
+        await store.UpsertPolicyAsync(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", false, [TestEntitlements.View], Organization), CancellationToken.None);
+        await store.ReplaceRoleEntitlementsAsync("tenant-a", Organization, Advisor, [TestEntitlements.View], CancellationToken.None);
 
         Assert.True((await service.DecideAsync(request, CancellationToken.None)).Permit);
 
         await store.ReplaceRoleEntitlementsAsync("tenant-a", Organization, Advisor, [], CancellationToken.None);
 
         Assert.False((await service.DecideAsync(request, CancellationToken.None)).Permit);
+    }
+
+    private static async Task SeedAsync(AccessControlDbContext context, string tenantId)
+    {
+        context.Entitlements.Add(new EntitlementEntity
+        {
+            Id = TestEntitlements.View, TenantId = tenantId, UnitOrganizationId = Organization,
+            Code = "customers.view", DisplayName = "View customers", IsActive = true
+        });
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
     }
 }

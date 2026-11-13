@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "User Management Service API",
-    "version": "5.0.0",
+    "version": "5.1.0",
     "description": "Tenant and unit-organization scoped user resolution, roles, and organization administration. The consuming API validates both the user JWT and trusted gateway UO assertion. Client-supplied headers are not trusted organization identity."
   },
   "servers": [
@@ -393,7 +393,8 @@
                       "tenantId": "default",
                       "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
                       "code": "reviewer",
-                      "displayName": "Reviewer"
+                      "displayName": "Reviewer",
+                      "isActive": true
                     }
                   ],
                   "totalCount": 1,
@@ -864,7 +865,8 @@
                       "tenantId": "default",
                       "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
                       "code": "reviewer",
-                      "displayName": "Reviewer"
+                      "displayName": "Reviewer",
+                      "isActive": true
                     }
                   ],
                   "totalCount": 1,
@@ -885,6 +887,67 @@
           },
           "404": {
             "description": "UO not found or tombstoned"
+          }
+        }
+      }
+    },
+    "/v1/roles/{roleId}/active": {
+      "put": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Activate or deactivate a role",
+        "operationId": "setRoleActive",
+        "security": [
+          {
+            "AdministratorApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "roleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/UnitOrganizationId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetActiveRequest"
+              },
+              "example": {
+                "isActive": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Status changed; user-resolution caches are invalidated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Role not found in the selected scope"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
           }
         }
       }
@@ -1200,7 +1263,8 @@
           "tenantId",
           "code",
           "displayName",
-          "unitOrganizationId"
+          "unitOrganizationId",
+          "isActive"
         ],
         "properties": {
           "roleId": {
@@ -1224,6 +1288,10 @@
             "format": "uuid",
             "description": "Role scope within the tenant.",
             "example": "33333333-3333-3333-3333-333333333333"
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "Inactive roles are omitted from resolved user role claims and cannot be assigned."
           }
         }
       },

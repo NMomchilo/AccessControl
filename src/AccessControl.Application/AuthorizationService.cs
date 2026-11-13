@@ -13,7 +13,7 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
         logger.LogDebug("Endpoint policy lookup for {TenantId} {UnitOrganizationId} {Module} {HttpMethod} {RouteTemplate}: {Found}",
             key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate, policy is not null);
         return policy is null ? null : new PolicyRequest(policy.TenantId, policy.Module, policy.HttpMethod,
-            policy.RouteTemplate, policy.IsPublic, policy.RequiredEntitlements, policy.UnitOrganizationId);
+            policy.RouteTemplate, policy.IsPublic, policy.RequiredEntitlementIds, policy.UnitOrganizationId);
     }
 
     public async Task<RoleEntitlementsRequest> GetRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, CancellationToken cancellationToken)
@@ -21,10 +21,11 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
         string normalizedTenant = NormalizeName(tenantId, nameof(tenantId));
         if (roleId == Guid.Empty) throw new ArgumentException("Role ID is required.", nameof(roleId));
         if (unitOrganizationId == Guid.Empty) throw new ArgumentException("Unit organization ID is required for role grants.", nameof(unitOrganizationId));
-        IReadOnlySet<string> entitlements = await store.GetEntitlementsAsync(normalizedTenant, unitOrganizationId, [roleId], cancellationToken);
+        IReadOnlyList<Guid> entitlements = await store.GetAssignedEntitlementIdsAsync(normalizedTenant, unitOrganizationId,
+            roleId, cancellationToken);
         logger.LogDebug("Read {Count} entitlements for role {RoleId} in tenant {TenantId}, organization {UnitOrganizationId}",
             entitlements.Count, roleId, normalizedTenant, unitOrganizationId);
-        return new RoleEntitlementsRequest(normalizedTenant, roleId, entitlements.Order(StringComparer.Ordinal).ToList(), unitOrganizationId);
+        return new RoleEntitlementsRequest(normalizedTenant, roleId, entitlements.Order().ToArray(), unitOrganizationId);
     }
 
     public async Task<DecisionResponse> DecideAsync(DecisionRequest request, CancellationToken cancellationToken)
@@ -89,8 +90,8 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
         }
 
         Guid[] roleIds = request.RoleIds.Distinct().ToArray();
-        IReadOnlySet<string> entitlements = await store.GetEntitlementsAsync(key.TenantId, key.UnitOrganizationId, roleIds, cancellationToken);
-        bool permit = policy.RequiredEntitlements.Any(entitlements.Contains);
+        IReadOnlySet<Guid> entitlements = await store.GetEntitlementsAsync(key.TenantId, key.UnitOrganizationId, roleIds, cancellationToken);
+        bool permit = policy.RequiredEntitlementIds.Any(entitlements.Contains);
         logger.LogInformation("Endpoint decision {Decision} for {TenantId} {UnitOrganizationId} {Module} {HttpMethod} {RouteTemplate}; {RoleCount} roles, {GrantCount} grants",
             permit ? "Permit" : "Deny", key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate,
             roleIds.Length, entitlements.Count);
@@ -106,15 +107,15 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
             throw new ArgumentException("Protected policies require a unit organization ID.", nameof(request));
         }
 
-        if (request.RequiredEntitlements is null ||
-            (request.IsPublic && request.RequiredEntitlements.Count != 0) ||
-            (!request.IsPublic && request.RequiredEntitlements.Count == 0))
+        if (request.RequiredEntitlementIds is null || request.RequiredEntitlementIds.Count > 32 ||
+            request.RequiredEntitlementIds.Any(value => value == Guid.Empty) ||
+            (request.IsPublic && request.RequiredEntitlementIds.Count != 0) ||
+            (!request.IsPublic && request.RequiredEntitlementIds.Count == 0))
         {
             throw new ArgumentException("Public policies have no entitlements; protected policies require at least one entitlement.", nameof(request));
         }
 
-        string[] entitlements = request.RequiredEntitlements.Select(value => NormalizeName(value, "entitlement"))
-            .Distinct(StringComparer.Ordinal).ToArray();
+        Guid[] entitlements = request.RequiredEntitlementIds.Distinct().ToArray();
         await store.UpsertPolicyAsync(new EndpointPolicy(key.TenantId, key.Module, key.HttpMethod,
             key.RouteTemplate, request.IsPublic, entitlements, key.UnitOrganizationId), cancellationToken);
         logger.LogInformation("Saved endpoint policy {TenantId} {Module} {HttpMethod} {RouteTemplate}; public {IsPublic}, entitlements {Count}",
@@ -137,9 +138,10 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
             throw new ArgumentException("Role ID is required.", nameof(request));
         if (request.UnitOrganizationId == Guid.Empty)
             throw new ArgumentException("Unit organization ID is required for role grants.", nameof(request));
-        IReadOnlyList<string> values = request.Entitlements ?? throw new ArgumentException("Entitlements are required.", nameof(request));
-        string[] entitlements = values.Select(value => NormalizeName(value, "entitlement"))
-            .Distinct(StringComparer.Ordinal).ToArray();
+        IReadOnlyList<Guid> values = request.EntitlementIds ?? throw new ArgumentException("Entitlement IDs are required.", nameof(request));
+        if (values.Count > 128 || values.Any(value => value == Guid.Empty))
+            throw new ArgumentException("Entitlement IDs must be nonempty and limited to 128.", nameof(request));
+        Guid[] entitlements = values.Distinct().ToArray();
         await store.ReplaceRoleEntitlementsAsync(tenantId, request.UnitOrganizationId, roleId, entitlements, cancellationToken);
         logger.LogInformation("Replaced entitlements for role {RoleId} in tenant {TenantId}; count {Count}", roleId, tenantId, entitlements.Length);
     }

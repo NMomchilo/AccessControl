@@ -74,6 +74,47 @@ public sealed class UserManagementStoreTests
     }
 
     [Fact]
+    public async Task DisabledRole_IsExcludedFromResolutionAndCannotBeAssignedAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using UserManagementDbContext db = CreateDb(connection);
+        await db.Database.EnsureCreatedAsync();
+        UserManagementService service = CreateService(db);
+        UserIdentityResponse first = await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None);
+        Guid reviewerId = first.Roles.Single().RoleId;
+        long before = await service.GetRevisionAsync(CancellationToken.None);
+
+        Assert.True(await service.SetRoleActiveAsync("default", OrganizationId, reviewerId, new SetActiveRequest(false), CancellationToken.None));
+        Assert.Equal(before + 1, await service.GetRevisionAsync(CancellationToken.None));
+        Assert.Empty((await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None)).Roles);
+        await Assert.ThrowsAsync<ArgumentException>(() => service.ReplaceRolesAsync("default", OrganizationId, Oid,
+            new ReplaceRolesRequest([reviewerId]), CancellationToken.None));
+        Assert.True(await service.SetRoleActiveAsync("default", OrganizationId, reviewerId, new SetActiveRequest(true), CancellationToken.None));
+        Assert.Equal(reviewerId, (await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None)).Roles.Single().RoleId);
+    }
+
+    [Fact]
+    public async Task FirstSignIn_DoesNotAssignDisabledReviewerAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using UserManagementDbContext db = CreateDb(connection);
+        await db.Database.EnsureCreatedAsync();
+        UserManagementService service = CreateService(db);
+        Guid reviewerId = (await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null),
+            CancellationToken.None)).Roles.Single().RoleId;
+        await service.SetRoleActiveAsync("default", OrganizationId, reviewerId, new SetActiveRequest(false), CancellationToken.None);
+        string newOid = Guid.NewGuid().ToString("D");
+
+        UserIdentityResponse created = await service.ResolveAsync(new("default", OrganizationId, "Alpha", newOid,
+            null, null), CancellationToken.None);
+
+        Assert.Empty(created.Roles);
+        Assert.False(await db.UserRoles.AnyAsync(value => value.UserId == created.UserId));
+    }
+
+    [Fact]
     public async Task ResolveAsync_InvalidOid_RejectsWithoutWritingAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");

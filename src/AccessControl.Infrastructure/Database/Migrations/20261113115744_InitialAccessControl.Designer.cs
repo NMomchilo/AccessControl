@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AccessControl.Infrastructure.Database.Migrations
 {
     [DbContext(typeof(AccessControlDbContext))]
-    [Migration("20261112120000_InitialAccessControl")]
+    [Migration("20261113115744_InitialAccessControl")]
     partial class InitialAccessControl
     {
         /// <inheritdoc />
@@ -59,15 +59,25 @@ namespace AccessControl.Infrastructure.Database.Migrations
                     b.Property<long>("EndpointPolicyId")
                         .HasColumnType("bigint");
 
-                    b.Property<string>("Entitlement")
+                    b.Property<Guid>("EntitlementId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
+                    b.Property<Guid>("UnitOrganizationId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("EndpointPolicyId", "Entitlement")
+                    b.HasIndex("EndpointPolicyId", "EntitlementId")
                         .IsUnique();
+
+                    b.HasIndex("TenantId", "UnitOrganizationId", "EndpointPolicyId");
+
+                    b.HasIndex("TenantId", "UnitOrganizationId", "EntitlementId");
 
                     b.ToTable("EndpointPolicyEntitlements", (string)null);
                 });
@@ -114,45 +124,39 @@ namespace AccessControl.Infrastructure.Database.Migrations
                     b.ToTable("EndpointPolicies", (string)null);
                 });
 
-            modelBuilder.Entity("AccessControl.Infrastructure.Database.PolicyEntity", b =>
+            modelBuilder.Entity("AccessControl.Infrastructure.Database.EntitlementEntity", b =>
                 {
-                    b.Property<long>("Id")
+                    b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
+                        .HasColumnType("uniqueidentifier");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<string>("Action")
+                    b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
-                    b.Property<string>("Entitlement")
+                    b.Property<string>("DisplayName")
                         .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
-                    b.Property<string>("Module")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.Property<string>("Resource")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
+                    b.Property<Guid>("UnitOrganizationId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId", "Module", "Resource", "Action", "Entitlement")
+                    b.HasIndex("TenantId", "UnitOrganizationId", "Code")
                         .IsUnique();
 
-                    b.ToTable("AccessPolicies", (string)null);
+                    b.ToTable("Entitlements", (string)null);
                 });
 
             modelBuilder.Entity("AccessControl.Infrastructure.Database.RoleEntitlementEntity", b =>
@@ -163,10 +167,8 @@ namespace AccessControl.Infrastructure.Database.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
-                    b.Property<string>("Entitlement")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
+                    b.Property<Guid>("EntitlementId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("RoleId")
                         .HasColumnType("uniqueidentifier");
@@ -181,7 +183,9 @@ namespace AccessControl.Infrastructure.Database.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId", "UnitOrganizationId", "RoleId", "Entitlement")
+                    b.HasIndex("TenantId", "UnitOrganizationId", "EntitlementId");
+
+                    b.HasIndex("TenantId", "UnitOrganizationId", "RoleId", "EntitlementId")
                         .IsUnique();
 
                     b.ToTable("RoleEntitlements", (string)null);
@@ -191,16 +195,45 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 {
                     b.HasOne("AccessControl.Infrastructure.Database.EndpointPolicyEntity", "EndpointPolicy")
                         .WithMany("RequiredEntitlements")
-                        .HasForeignKey("EndpointPolicyId")
+                        .HasForeignKey("TenantId", "UnitOrganizationId", "EndpointPolicyId")
+                        .HasPrincipalKey("TenantId", "UnitOrganizationId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("AccessControl.Infrastructure.Database.EntitlementEntity", "Entitlement")
+                        .WithMany("PolicyRequirements")
+                        .HasForeignKey("TenantId", "UnitOrganizationId", "EntitlementId")
+                        .HasPrincipalKey("TenantId", "UnitOrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("EndpointPolicy");
+
+                    b.Navigation("Entitlement");
+                });
+
+            modelBuilder.Entity("AccessControl.Infrastructure.Database.RoleEntitlementEntity", b =>
+                {
+                    b.HasOne("AccessControl.Infrastructure.Database.EntitlementEntity", "Entitlement")
+                        .WithMany("RoleGrants")
+                        .HasForeignKey("TenantId", "UnitOrganizationId", "EntitlementId")
+                        .HasPrincipalKey("TenantId", "UnitOrganizationId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Entitlement");
                 });
 
             modelBuilder.Entity("AccessControl.Infrastructure.Database.EndpointPolicyEntity", b =>
                 {
                     b.Navigation("RequiredEntitlements");
+                });
+
+            modelBuilder.Entity("AccessControl.Infrastructure.Database.EntitlementEntity", b =>
+                {
+                    b.Navigation("PolicyRequirements");
+
+                    b.Navigation("RoleGrants");
                 });
 #pragma warning restore 612, 618
         }

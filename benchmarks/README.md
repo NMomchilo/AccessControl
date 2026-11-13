@@ -17,7 +17,7 @@ The local test server skips the real network and TLS. SQLite is not SQL Server a
 
 ## Benchmark a staging deployment
 
-Apply the EF migration and create a protected policy for tenant `benchmark-tenant`, UO ID `33333333-3333-3333-3333-333333333333`, module `benchmark`, method `GET`, route `/benchmark/{id}`, requiring `benchmark.read`. Grant `benchmark.read` to role ID `10954aa4-7532-80de-a80e-a7be3ad4c991` in the same tenant and UO for the default synthetic decision workload. This benchmark exercises Access Control only; it does not require a corresponding User Management user. Then run:
+Apply the EF migration, create an active `benchmark.read` entitlement for tenant `benchmark-tenant` and UO ID `33333333-3333-3333-3333-333333333333`, and use its returned ID in a protected policy for module `benchmark`, method `GET`, route `/benchmark/{id}`. Grant that entitlement ID to role ID `10954aa4-7532-80de-a80e-a7be3ad4c991` in the same tenant and UO. The local SQLite benchmark seeds its own fixed entitlement ID; the remote setup uses the ID returned by the staging API. This benchmark exercises Access Control only; it does not require a corresponding User Management user. Then run:
 
 ```powershell
 $env:AccessControlBenchmark__DecisionKey = '<staging decision key>'

@@ -78,11 +78,18 @@ public sealed class TenantRoleIdentityTests
         await using AccessControlDbContext db = new(
             new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
         await db.Database.EnsureCreatedAsync();
+        db.Entitlements.Add(new EntitlementEntity
+        {
+            Id = TestEntitlements.View, TenantId = "tenant-a", UnitOrganizationId = organizationId,
+            Code = "customers.view", DisplayName = "View customers", IsActive = true
+        });
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
         SqlAuthorizationStore store = new(db, NullLogger<SqlAuthorizationStore>.Instance);
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
         await store.UpsertPolicyAsync(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}",
-            false, ["customers.view"], organizationId), CancellationToken.None);
-        await store.ReplaceRoleEntitlementsAsync("tenant-a", organizationId, allowed, ["customers.view"], CancellationToken.None);
+            false, [TestEntitlements.View], organizationId), CancellationToken.None);
+        await store.ReplaceRoleEntitlementsAsync("tenant-a", organizationId, allowed, [TestEntitlements.View], CancellationToken.None);
 
         Assert.True((await service.DecideAsync(new DecisionRequest(Oid, [allowed], "customers", "GET",
             "/customers/{id}", "tenant-a", organizationId), CancellationToken.None)).Permit);

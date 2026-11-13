@@ -1,3 +1,3 @@
 namespace UserManagement.Domain;
 
-public sealed record ManagedRole(Guid Id, string TenantId, Guid UnitOrganizationId, string Code, string DisplayName);
+public sealed record ManagedRole(Guid Id, string TenantId, Guid UnitOrganizationId, string Code, string DisplayName, bool IsActive = true);

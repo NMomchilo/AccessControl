@@ -11,7 +11,7 @@ public sealed class CachingAuthorizationStore(IAuthorizationStore source, Author
         CancellationToken cancellationToken) => cache.GetPolicyAsync(tenantId, unitOrganizationId, module, httpMethod, routeTemplate,
             token => source.GetPolicyAsync(tenantId, unitOrganizationId, module, httpMethod, routeTemplate, token), cancellationToken);
 
-    public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds,
+    public Task<IReadOnlySet<Guid>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds,
         CancellationToken cancellationToken)
     {
         Guid[] normalizedRoleIds = roleIds.Distinct().Order().ToArray();
@@ -20,6 +20,10 @@ public sealed class CachingAuthorizationStore(IAuthorizationStore source, Author
             : cache.GetGrantsAsync(tenantId, unitOrganizationId, normalizedRoleIds,
                 token => source.GetEntitlementsAsync(tenantId, unitOrganizationId, normalizedRoleIds, token), cancellationToken);
     }
+
+    public Task<IReadOnlyList<Guid>> GetAssignedEntitlementIdsAsync(string tenantId, Guid unitOrganizationId,
+        Guid roleId, CancellationToken cancellationToken) =>
+        source.GetAssignedEntitlementIdsAsync(tenantId, unitOrganizationId, roleId, cancellationToken);
 
     public async Task UpsertPolicyAsync(EndpointPolicy policy, CancellationToken cancellationToken)
     {
@@ -36,10 +40,10 @@ public sealed class CachingAuthorizationStore(IAuthorizationStore source, Author
         logger.LogDebug("Local cache cleared after policy delete");
     }
 
-    public async Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<string> entitlements,
+    public async Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<Guid> entitlementIds,
         CancellationToken cancellationToken)
     {
-        await source.ReplaceRoleEntitlementsAsync(tenantId, unitOrganizationId, roleId, entitlements, cancellationToken);
+        await source.ReplaceRoleEntitlementsAsync(tenantId, unitOrganizationId, roleId, entitlementIds, cancellationToken);
         cache.InvalidateAll("role entitlements changed");
         logger.LogDebug("Local cache cleared after role entitlement change");
     }

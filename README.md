@@ -35,9 +35,9 @@ sequenceDiagram
 
 | Component | Responsibility | Data it owns or changes |
 |---|---|---|
-| `UserManagement.Service` | Finds a user by application tenant and Entra `oid`; creates a missing UO when the trusted gateway asserts a new ID and name; assigns a first-time user the UO's `reviewer` role; exposes administrator endpoints for UOs, roles, assignments, and user status. | Its own SQL Server database, `UnitOrganizationUserManagementLocalDev` in local Development. It does not validate the end-user JWT; the consuming API validates it first. |
+| `UserManagement.Service` | Finds a user by application tenant and Entra `oid`; creates a missing UO when the trusted gateway asserts a new ID and name; assigns a first-time user the UO's `reviewer` role; exposes administrator endpoints for UOs, roles, assignments, and user status. | Its own SQL Server database, `UserManagementRolesLocalDev` in local Development. It does not validate the end-user JWT; the consuming API validates it first. |
 | `UserManagement.Client` NuGet | Runs after authentication, reads the validated `oid` and gateway-authenticated UO identity, calls User Management on a cache miss, denies inactive users, and adds user, tenant, UO, role-ID, and role-code claims to `HttpContext.User`. | A bounded, per-instance cache keyed by tenant, UO ID, and `oid`. It changes the principal for **this request only**; it does not edit or reissue the JWT. |
-| `AccessControl.Service` | Looks up the policy for a tenant, UO ID, module, HTTP method, and route template; compares required entitlements with grants for the supplied role IDs; returns Permit or Deny. Administrator endpoints manage policies and grants. | Its own SQL Server database, `UnitOrganizationAccessControlLocalDev` in local Development, plus a bounded, per-instance policy/grant cache. It has no user or UO directory table. |
+| `AccessControl.Service` | Looks up the policy for a tenant, UO ID, module, HTTP method, and route template; compares required entitlements with grants for the supplied role IDs; returns Permit or Deny. Administrator endpoints manage policies and grants. | Its own SQL Server database, `AccessControlEntitlementsLocalDev` in local Development, plus a bounded, per-instance policy/grant cache. It has no user or UO directory table. |
 | `AccessControl.Client` NuGet | Runs after User Management, identifies the matched endpoint, sends a decision request, and lets the controller run only on Permit. | No policy database. It reads the request principal and calls Access Control for each non-excluded matched request. |
 
 For a protected `GET /customers/{id}`, User Management returns the user's role IDs for the gateway-asserted UO and their display codes. Access Control checks the policy in module `customers`, tenant `default`, and that UO. If the policy requires `customers.view` and one of those **role IDs** has that entitlement in the same scope, Access Control returns Permit. **Creating a user with `reviewer` does not itself create an Access Control grant.** A missing policy or missing grant denies the request. Two roles may share a display name and still have different IDs and grants.
@@ -62,7 +62,7 @@ The compose file runs SQL Server 2022 on `localhost,1433` with a persistent Dock
 dotnet run --project src/UserManagement.Service --launch-profile http
 ```
 
-Open [User Management Swagger UI](http://localhost:5220/swagger). `GET http://localhost:5220/ready` checks database connectivity. In Development, startup applies EF migrations to `UnitOrganizationUserManagementLocalDev`. The local client and administrator keys are in [User Management Development settings](src/UserManagement.Service/appsettings.Development.json).
+Open [User Management Swagger UI](http://localhost:5220/swagger). `GET http://localhost:5220/ready` checks database connectivity. In Development, startup applies EF migrations to `UserManagementRolesLocalDev`. The local client and administrator keys are in [User Management Development settings](src/UserManagement.Service/appsettings.Development.json).
 
 **Terminal 2 — Access Control:**
 
@@ -70,7 +70,7 @@ Open [User Management Swagger UI](http://localhost:5220/swagger). `GET http://lo
 dotnet run --project src/AccessControl.Service --launch-profile https
 ```
 
-Open [Access Control Swagger UI](https://localhost:7219/swagger). `GET https://localhost:7219/health` is a liveness check; it does **not** check the database. In Development, startup applies EF migrations to `UnitOrganizationAccessControlLocalDev`. The local connection string is in [Access Control Development settings](src/AccessControl.Service/appsettings.Development.json); decision and administrator keys are in [Access Control settings](src/AccessControl.Service/appsettings.json). If the browser does not open automatically, open the Swagger URL manually. Swagger UI and the OpenAPI files are served only in Development.
+Open [Access Control Swagger UI](https://localhost:7219/swagger). `GET https://localhost:7219/health` is a liveness check; it does **not** check the database. In Development, startup applies EF migrations to `AccessControlEntitlementsLocalDev`. The local connection string is in [Access Control Development settings](src/AccessControl.Service/appsettings.Development.json); decision and administrator keys are in [Access Control settings](src/AccessControl.Service/appsettings.json). If the browser does not open automatically, open the Swagger URL manually. Swagger UI and the OpenAPI files are served only in Development.
 
 **Terminal 3 — sample consuming API:** set an Entra authority and API audience that match a valid access token for this API, then start the sample. Protected requests also require an authenticated gateway integration that adds a `Gateway` identity with `unit_organization_id` (GUID) and `unit_organization_name` claims. The sample deliberately does not convert untrusted HTTP headers into that identity.
 
@@ -88,14 +88,25 @@ Use `POST /v1/unit-organizations` in [User Management Swagger UI](http://localho
 
 Deleting a UO through the administrator API tombstones its ID, including when users or roles reference it. It disappears from GET/list results, and later gateway resolution and role assignment with that ID are rejected; use a new GUID for a replacement UO. Existing rows remain for audit. Access Control grants and policies for a tombstoned ID need separate administrator cleanup. An already cached user resolution may remain effective for up to five seconds.
 
-In [Access Control Swagger UI](https://localhost:7219/swagger), authorize with `ApiKeys:AdminKey` from the local settings. Grant `customers.view` to that exact ID using `PUT /v1/roles/entitlements` (replace the sample GUID below with the value returned by User Management):
+In [Access Control Swagger UI](https://localhost:7219/swagger), authorize with `ApiKeys:AdminKey` from the local settings. First create an entitlement with `POST /v1/entitlements`:
+
+```json
+{
+  "tenantId": "default",
+  "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+  "code": "customers.view",
+  "displayName": "View customers"
+}
+```
+
+Copy its returned `id`, then grant it to the role using `PUT /v1/roles/entitlements` (replace the role and entitlement GUIDs below with the returned values):
 
 ```json
 {
   "tenantId": "default",
   "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
   "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
-  "entitlements": ["customers.view"]
+  "entitlementIds": ["11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
 }
 ```
 
@@ -109,7 +120,7 @@ Then create the endpoint policy using `PUT /v1/policies`:
   "httpMethod": "GET",
   "routeTemplate": "/customers/{id}",
   "isPublic": false,
-  "requiredEntitlements": ["customers.view"]
+  "requiredEntitlementIds": ["11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
 }
 ```
 
@@ -122,15 +133,15 @@ Invoke-RestMethod -Uri "https://localhost:57726/customers/123" -Headers @{ Autho
 
 On first sign-in through the gateway, User Management creates the UO if missing, creates the user in tenant `default`, and assigns that UO's `reviewer` role ID. Access Control permits the request because that ID has `customers.view` in the same tenant and UO. To see Deny, remove the role grant or change the policy to require an entitlement the role does not have. A protected request without a token returns `401`.
 
-To make this route public, create a policy with `"unitOrganizationId": "00000000-0000-0000-0000-000000000000"`, `"isPublic": true`, and `"requiredEntitlements": []`, then call it without a token. A global public policy does not require a User Management lookup for an **anonymous** request. At present, an authenticated request without a valid `oid` is stopped by User Management before public policy evaluation.
+To make this route public, create a policy with `"unitOrganizationId": "00000000-0000-0000-0000-000000000000"`, `"isPublic": true`, and `"requiredEntitlementIds": []`, then call it without a token. A global public policy does not require a User Management lookup for an **anonymous** request. At present, an authenticated request without a valid `oid` is stopped by User Management before public policy evaluation.
 
 Use the **client** key in User Management Swagger for `POST /v1/users/resolve` and `GET /v1/users/revision`; use its **administrator** key for UO create/update/delete, user read, role replacement, and active-status changes. The two key types share one HTTP header, so clear the other Swagger authorization when switching. Access Control likewise uses a **decision** key for `POST /v1/decisions` and an **administrator** key for policies and grants.
 
-Administrators can page through users with `GET /v1/users?tenantId=default&page=1&pageSize=100`, members of one UO with `GET /v1/unit-organizations/{id}/users`, and roles with `GET /v1/roles` or `GET /v1/unit-organizations/{id}/roles`. `GET /v1/entitlements` and `GET /v1/unit-organizations/{id}/entitlements` in Access Control list distinct entitlement names currently referenced by policies or grants. These endpoints use the administrator keys; page size is limited to 100. See the API references for response shapes and filters.
+Administrators can page through users with `GET /v1/users?tenantId=default&page=1&pageSize=100`, members of one UO with `GET /v1/unit-organizations/{id}/users`, and roles with `GET /v1/roles` or `GET /v1/unit-organizations/{id}/roles`. `GET /v1/entitlements` and `GET /v1/unit-organizations/{id}/entitlements` in Access Control list registered entitlements, including unreferenced and disabled entries. The administrator can disable a role through `PUT /v1/roles/{roleId}/active` in User Management or an entitlement through `PUT /v1/entitlements/{id}/active` in Access Control, sending `{ "isActive": false }`. An administrator can rename an entitlement with `PUT /v1/entitlements/{id}/display-name?tenantId=default&unitOrganizationId=<uo-guid>` and `{ "displayName": "View customer records" }`; the ID, code, grants, and policies stay the same. Disabled roles are omitted from resolved claims; disabled entitlements cannot satisfy policies. These endpoints use the administrator keys; page size is limited to 100. See the API references for response shapes and filters.
 
 `GET /v1/roles` now returns a paged object with an `items` array instead of a bare array. Update any administrator tooling that reads this endpoint when upgrading the contracts and client packages. The URL remains `/v1/roles`.
 
-The OpenAPI `info.version` values identify the current contract revisions (User Management 4.0.0, Access Control 3.1.0). The development service URLs still use `/v1` paths.
+The OpenAPI `info.version` values identify the current contract revisions (User Management 5.1.0, Access Control 5.1.0). The development service URLs still use `/v1` paths.
 
 ## Add both packages to another ASP.NET Core service
 
@@ -141,8 +152,8 @@ dotnet pack src/UserManagement.Contracts -c Release -o artifacts/packages
 dotnet pack src/UserManagement.Client -c Release -o artifacts/packages
 dotnet pack src/AccessControl.Contracts -c Release -o artifacts/packages
 dotnet pack src/AccessControl.Client -c Release -o artifacts/packages
-dotnet add <consumer-project.csproj> package UserManagement.Client --version 0.5.0 --source artifacts/packages
-dotnet add <consumer-project.csproj> package AccessControl.Client --version 0.6.0 --source artifacts/packages
+dotnet add <consumer-project.csproj> package UserManagement.Client --version 0.6.0 --source artifacts/packages
+dotnet add <consumer-project.csproj> package AccessControl.Client --version 0.8.0 --source artifacts/packages
 ```
 
 Configure JWT validation in the consuming service. Register both clients and put their middleware **after routing and authentication**, in this order:
@@ -172,13 +183,14 @@ The optional endpoint catalog writes `(module, HTTP method, route template)` ent
 ## Decisions, failures, and caching
 
 - A protected policy needs at least one required entitlement. Any one required entitlement granted to any supplied role permits the request (OR semantics). A public policy has no required entitlements. No policy means Deny.
+- Entitlement codes are unique per tenant and UO, while authorization compares stable entitlement IDs. A disabled entitlement remains listed and assigned but cannot grant access; re-enabling it restores existing grants. A disabled role remains assigned to users but is omitted from new resolutions and cannot be newly assigned. Status changes increment the relevant database revision and invalidate local caches.
 - User Management rejects an authenticated principal without a valid `oid` with `401`, one without the configured exact delegated `scp` scope or authenticated gateway UO assertion with `403`, and an inactive user with `403`. A tombstoned UO or conflicting gateway assertion yields `409` from the service and `403` from the client middleware. It returns `503` to the caller if the service is unavailable.
 - Access Control returns `401` for an anonymous request without a global public policy, `403` for an authenticated request with a missing policy or grant, and `503` from the consuming middleware when the decision service is unavailable. Its decision service receives the role, UO, and subject assertions from the consuming service.
 - The User Management client caches resolved users for at most five seconds. The Access Control service separately caches policies and role grants for at most five seconds. Administrator writes increment database revisions; instances poll for changes, and expiry is the fallback. An already cached role, policy, or grant can therefore remain effective for up to five seconds if polling fails. In-flight requests may finish with data already read.
 
 For production, supply distinct credentials and connection strings through a secret store, restrict access to the service APIs and databases, and apply migrations as a deployment step. Development-only startup migration is disabled outside Development. The current Access Control decision key is shared among consuming services and the decision API trusts their submitted roles, subjects, modules, and tenants; bind caller credentials to their permitted scope before using this design across mutually untrusted services.
 
-Each service has one initial migration that creates the tenant, UO, and role-ID schema directly with the new unit-organization names. It does not copy legacy string roles or existing data. These baselines require **empty databases**. Development uses `UnitOrganizationUserManagementLocalDev` and `UnitOrganizationAccessControlLocalDev` to avoid reusing an older schema. For other environments, use fresh empty databases or deliberately recreate development databases after saving anything needed. Keep the two services and client packages on matching versions. New role assignments use IDs from User Management; Access Control does not maintain a cross-database foreign key to those roles.
+Each service has one initial migration. User Management creates roles with `IsActive`; Access Control creates an entitlement catalog and foreign keys from role grants and policy requirements to entitlement IDs. It does not copy legacy string roles, entitlement strings, or existing data. These baselines require **empty databases**. Development uses `UserManagementRolesLocalDev` and `AccessControlEntitlementsLocalDev`; if either already has an earlier schema, use fresh empty database names or deliberately recreate those development databases after saving anything needed. Keep the two services and client packages on matching versions. New role assignments use IDs from User Management; Access Control does not maintain a cross-database foreign key to those roles.
 
 ## Local troubleshooting
 
@@ -191,7 +203,7 @@ Each service has one initial migration that creates the tenant, UO, and role-ID 
 | Swagger does not open | Start a service in Development and browse directly to `http://localhost:5220/swagger` or `https://localhost:7219/swagger`. The sample Customer API does not expose Swagger. |
 | HTTPS certificate error | Run `dotnet dev-certs https --trust` and restart the browser or terminal. |
 
-To inspect the local SQL Server in SSMS, connect to `localhost,1433` using SQL Server Authentication with user `sa` and the password configured for the **existing** container volume. The local databases are `UnitOrganizationAccessControlLocalDev` and `UnitOrganizationUserManagementLocalDev` after their Development migrations run.
+To inspect the local SQL Server in SSMS, connect to `localhost,1433` using SQL Server Authentication with user `sa` and the password configured for the **existing** container volume. The local databases are `AccessControlEntitlementsLocalDev` and `UserManagementRolesLocalDev` after their Development migrations run.
 
 ## API reference, tests, and benchmarks
 

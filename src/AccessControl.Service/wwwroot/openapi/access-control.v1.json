@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Access Control Service API",
-    "version": "4.0.0",
+    "version": "5.1.0",
     "description": "Tenant and unit-organization scoped endpoint decisions and administration."
   },
   "servers": [
@@ -223,8 +223,8 @@
                     "httpMethod": "GET",
                     "routeTemplate": "/customers/{id}",
                     "isPublic": false,
-                    "requiredEntitlements": [
-                      "customers.view"
+                    "requiredEntitlementIds": [
+                      "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
                     ],
                     "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
                   }
@@ -236,7 +236,7 @@
                     "httpMethod": "GET",
                     "routeTemplate": "/customers/public",
                     "isPublic": true,
-                    "requiredEntitlements": [],
+                    "requiredEntitlementIds": [],
                     "unitOrganizationId": "00000000-0000-0000-0000-000000000000"
                   }
                 }
@@ -370,8 +370,8 @@
               "example": {
                 "tenantId": "default",
                 "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
-                "entitlements": [
-                  "customers.view"
+                "entitlementIds": [
+                  "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
                 ],
                 "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
               }
@@ -399,7 +399,7 @@
         "tags": [
           "Administration"
         ],
-        "summary": "List referenced entitlement names in a tenant",
+        "summary": "List entitlements in a tenant",
         "operationId": "listEntitlements",
         "security": [
           {
@@ -417,10 +417,10 @@
             "$ref": "#/components/parameters/PageSize"
           }
         ],
-        "description": "Union of endpoint policy requirements and role grants, distinct and sorted. Unreferenced names do not appear.",
+        "description": "Lists all registered entitlements, including inactive and unreferenced entries, ordered by unit organization ID, code, and entitlement ID.",
         "responses": {
           "200": {
-            "description": "Distinct referenced entitlement names, sorted by name",
+            "description": "Page of registered entitlements",
             "content": {
               "application/json": {
                 "schema": {
@@ -428,7 +428,14 @@
                 },
                 "example": {
                   "items": [
-                    "customers.view"
+                    {
+                      "id": "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                      "tenantId": "default",
+                      "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                      "code": "customers.view",
+                      "displayName": "View customers",
+                      "isActive": true
+                    }
                   ],
                   "totalCount": 1,
                   "page": 1,
@@ -447,6 +454,66 @@
             "$ref": "#/components/responses/ServiceError"
           }
         }
+      },
+      "post": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Create an entitlement",
+        "operationId": "createEntitlement",
+        "security": [
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEntitlementRequest"
+              },
+              "example": {
+                "tenantId": "default",
+                "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                "code": "customers.view",
+                "displayName": "View customers"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Entitlement created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementInfo"
+                },
+                "example": {
+                  "id": "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                  "tenantId": "default",
+                  "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                  "code": "customers.view",
+                  "displayName": "View customers",
+                  "isActive": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          },
+          "409": {
+            "description": "Code already exists in this tenant and unit organization"
+          }
+        }
       }
     },
     "/v1/unit-organizations/{id}/entitlements": {
@@ -454,7 +521,7 @@
         "tags": [
           "Administration"
         ],
-        "summary": "List referenced entitlement names in one UO",
+        "summary": "List entitlements in one unit organization",
         "operationId": "listUnitOrganizationEntitlements",
         "security": [
           {
@@ -475,10 +542,10 @@
             "$ref": "#/components/parameters/PageSize"
           }
         ],
-        "description": "The UO ID must be nonzero. Access Control has no UO directory, so an unknown UO returns an empty page.",
+        "description": "Lists all registered entitlements, including inactive and unreferenced entries, ordered by unit organization ID, code, and entitlement ID.",
         "responses": {
           "200": {
-            "description": "Distinct referenced entitlement names, sorted by name",
+            "description": "Page of registered entitlements",
             "content": {
               "application/json": {
                 "schema": {
@@ -486,7 +553,14 @@
                 },
                 "example": {
                   "items": [
-                    "customers.view"
+                    {
+                      "id": "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                      "tenantId": "default",
+                      "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                      "code": "customers.view",
+                      "displayName": "View customers",
+                      "isActive": true
+                    }
                   ],
                   "totalCount": 1,
                   "page": 1,
@@ -503,6 +577,109 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          }
+        }
+      }
+    },
+    "/v1/entitlements/{id}/display-name": {
+      "put": {
+        "tags": ["Administration"],
+        "summary": "Change an entitlement's display name",
+        "description": "Changes only the human-readable name in the selected tenant and unit organization. The entitlement ID, code, status, grants, policies, and authorization revision remain unchanged.",
+        "operationId": "updateEntitlementDisplayName",
+        "security": [{ "AdminApiKey": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          { "$ref": "#/components/parameters/TenantId" },
+          { "$ref": "#/components/parameters/UnitOrganizationId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateEntitlementDisplayNameRequest" },
+              "example": { "displayName": "View customer records" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated entitlement",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/EntitlementInfo" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "Entitlement not found in the selected scope" },
+          "500": { "$ref": "#/components/responses/ServiceError" }
+        }
+      }
+    },
+    "/v1/entitlements/{id}/active": {
+      "put": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Activate or deactivate an entitlement",
+        "operationId": "setEntitlementActive",
+        "security": [
+          {
+            "AdminApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/UnitOrganizationId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetEntitlementActiveRequest"
+              },
+              "example": {
+                "isActive": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Status changed; authorization caches are invalidated"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          },
+          "404": {
+            "description": "Entitlement not found in the selected scope"
           }
         }
       }
@@ -741,20 +918,21 @@
             "type": "object",
             "required": [
               "isPublic",
-              "requiredEntitlements"
+              "requiredEntitlementIds"
             ],
             "properties": {
               "isPublic": {
                 "type": "boolean",
                 "description": "True allows access without a subject or role grant."
               },
-              "requiredEntitlements": {
+              "requiredEntitlementIds": {
                 "type": "array",
+                "maxItems": 32,
                 "items": {
                   "type": "string",
-                  "maxLength": 128
+                  "format": "uuid"
                 },
-                "description": "Empty for public policies; one or more for protected policies. Any one matching grant permits access."
+                "description": "Empty for public policies; 1-32 active entitlement IDs in this tenant and unit organization for protected policies. Any one matching grant permits access."
               }
             }
           }
@@ -765,7 +943,7 @@
         "required": [
           "tenantId",
           "roleId",
-          "entitlements",
+          "entitlementIds",
           "unitOrganizationId"
         ],
         "properties": {
@@ -774,14 +952,15 @@
             "maxLength": 128,
             "example": "default"
           },
-          "entitlements": {
+          "entitlementIds": {
             "type": "array",
+            "maxItems": 128,
             "items": {
               "type": "string",
-              "maxLength": 128
+              "format": "uuid"
             },
             "example": [
-              "customers.view"
+              "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
             ]
           },
           "roleId": {
@@ -835,8 +1014,7 @@
           "items": {
             "type": "array",
             "items": {
-              "type": "string",
-              "maxLength": 128
+              "$ref": "#/components/schemas/EntitlementInfo"
             }
           },
           "totalCount": {
@@ -854,6 +1032,87 @@
             "format": "int32",
             "minimum": 1,
             "maximum": 100
+          }
+        }
+      },
+      "CreateEntitlementRequest": {
+        "type": "object",
+        "required": [
+          "tenantId",
+          "unitOrganizationId",
+          "code",
+          "displayName"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "displayName": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "EntitlementInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenantId",
+          "unitOrganizationId",
+          "code",
+          "displayName",
+          "isActive"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "displayName": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UpdateEntitlementDisplayNameRequest": {
+        "type": "object",
+        "required": ["displayName"],
+        "properties": {
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      },
+      "SetEntitlementActiveRequest": {
+        "type": "object",
+        "required": [
+          "isActive"
+        ],
+        "properties": {
+          "isActive": {
+            "type": "boolean"
           }
         }
       }

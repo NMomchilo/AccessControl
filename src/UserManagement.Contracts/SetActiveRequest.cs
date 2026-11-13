@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace UserManagement.Contracts;
 
-public sealed record SetActiveRequest(bool IsActive);
+public sealed record SetActiveRequest([property: JsonRequired] bool IsActive);

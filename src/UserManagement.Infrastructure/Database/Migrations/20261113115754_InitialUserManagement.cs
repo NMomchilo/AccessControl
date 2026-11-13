@@ -12,19 +12,6 @@ namespace UserManagement.Infrastructure.Database.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "UserManagementRevisions",
-                columns: table => new
-                {
-                    Id = table.Column<int>(type: "int", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    Version = table.Column<long>(type: "bigint", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_UserManagementRevisions", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "UnitOrganizations",
                 columns: table => new
                 {
@@ -37,6 +24,19 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 {
                     table.PrimaryKey("PK_UnitOrganizations", x => x.Id);
                     table.UniqueConstraint("AK_UnitOrganizations_TenantId_Id", x => new { x.TenantId, x.Id });
+                });
+
+            migrationBuilder.CreateTable(
+                name: "UserManagementRevisions",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    Version = table.Column<long>(type: "bigint", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_UserManagementRevisions", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -65,7 +65,8 @@ namespace UserManagement.Infrastructure.Database.Migrations
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Code = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
-                    DisplayName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false)
+                    DisplayName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    IsActive = table.Column<bool>(type: "bit", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -160,14 +161,14 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 filter: "[IsDeleted] = 0");
 
             migrationBuilder.CreateIndex(
-                name: "IX_UserRoles_TenantId_UserId_UnitOrganizationId",
-                table: "UserRoles",
-                columns: new[] { "TenantId", "UserId", "UnitOrganizationId" });
-
-            migrationBuilder.CreateIndex(
                 name: "IX_UserRoles_TenantId_UnitOrganizationId_RoleId",
                 table: "UserRoles",
                 columns: new[] { "TenantId", "UnitOrganizationId", "RoleId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_UserRoles_TenantId_UserId_UnitOrganizationId",
+                table: "UserRoles",
+                columns: new[] { "TenantId", "UserId", "UnitOrganizationId" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_TenantId_ObjectId",

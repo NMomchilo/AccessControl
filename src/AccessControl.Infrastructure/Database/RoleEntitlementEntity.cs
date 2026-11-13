@@ -6,5 +6,6 @@ public sealed class RoleEntitlementEntity
     public string TenantId { get; set; } = string.Empty;
     public Guid UnitOrganizationId { get; set; }
     public Guid RoleId { get; set; }
-    public string Entitlement { get; set; } = string.Empty;
+    public Guid EntitlementId { get; set; }
+    public EntitlementEntity Entitlement { get; set; } = null!;
 }

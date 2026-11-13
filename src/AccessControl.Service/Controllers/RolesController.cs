@@ -15,7 +15,7 @@ public sealed class RolesController(AuthorizationService authorizationService, I
         [FromQuery] Guid roleId, CancellationToken cancellationToken)
     {
         RoleEntitlementsRequest result = await authorizationService.GetRoleEntitlementsAsync(tenantId, unitOrganizationId, roleId, cancellationToken);
-        logger.LogDebug("Role entitlements API read completed; count {Count}, trace {TraceId}", result.Entitlements.Count, HttpContext.TraceIdentifier);
+        logger.LogDebug("Role entitlements API read completed; count {Count}, trace {TraceId}", result.EntitlementIds.Count, HttpContext.TraceIdentifier);
         return Ok(result);
     }
 

@@ -6,7 +6,7 @@ namespace UserManagement.Service.Controllers;
 
 [ApiController]
 [Route("v1/roles")]
-public sealed class RolesController(UserManagementService service) : ControllerBase
+public sealed class RolesController(UserManagementService service, ILogger<RolesController> logger) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(PagedResult<RoleInfo>), StatusCodes.Status200OK)]
@@ -25,5 +25,17 @@ public sealed class RolesController(UserManagementService service) : ControllerB
     {
         RoleInfo role = await service.CreateRoleAsync(request, cancellationToken);
         return Created($"/v1/roles?tenantId={Uri.EscapeDataString(role.TenantId)}&unitOrganizationId={role.UnitOrganizationId:D}", role);
+    }
+
+    [HttpPut("{roleId:guid}/active")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SetActiveAsync(Guid roleId, [FromQuery] string tenantId,
+        [FromQuery] Guid unitOrganizationId, [FromBody] SetActiveRequest request, CancellationToken cancellationToken)
+    {
+        bool found = await service.SetRoleActiveAsync(tenantId, unitOrganizationId, roleId, request, cancellationToken);
+        logger.LogInformation("Administrator {Actor} set role {RoleId} active status to {IsActive}; found {Found}; trace {TraceId}",
+            HttpContext.Items["UserManagementActor"], roleId, request.IsActive, found, HttpContext.TraceIdentifier);
+        return found ? NoContent() : NotFound();
     }
 }

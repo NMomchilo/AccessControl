@@ -353,6 +353,33 @@ public sealed class UserManagementApiTests
         Assert.Equal(HttpStatusCode.Unauthorized, roles.StatusCode);
     }
 
+    [Fact]
+    public async Task RoleStatusEndpoint_RequiresAdministratorAndRemovesDisabledRoleFromResolutionAsync()
+    {
+        await using ApiFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+        await factory.InitializeAsync();
+        using HttpRequestMessage firstRequest = ResolveRequest(ClientKey);
+        using HttpResponseMessage firstResponse = await client.SendAsync(firstRequest);
+        UserIdentityResponse first = (await firstResponse.Content.ReadFromJsonAsync<UserIdentityResponse>())!;
+        Guid roleId = first.Roles.Single().RoleId;
+        string path = $"/v1/roles/{roleId:D}/active?tenantId=default&unitOrganizationId={OrganizationId:D}";
+        using HttpResponseMessage rejected = await SendClientAsync(client, HttpMethod.Put, path, new SetActiveRequest(false));
+        Assert.Equal(HttpStatusCode.Unauthorized, rejected.StatusCode);
+        long revision = await ReadRevisionAsync(client);
+        using HttpResponseMessage disabled = await SendAdminAsync(client, HttpMethod.Put, path, new SetActiveRequest(false));
+        Assert.Equal(HttpStatusCode.NoContent, disabled.StatusCode);
+        using HttpResponseMessage missingFlag = await SendAdminAsync(client, HttpMethod.Put, path, new { });
+        Assert.Equal(HttpStatusCode.BadRequest, missingFlag.StatusCode);
+        Assert.Equal(revision + 1, await ReadRevisionAsync(client));
+        using HttpRequestMessage nextRequest = ResolveRequest(ClientKey);
+        using HttpResponseMessage nextResponse = await client.SendAsync(nextRequest);
+        Assert.Empty((await nextResponse.Content.ReadFromJsonAsync<UserIdentityResponse>())!.Roles);
+        using HttpResponseMessage listed = await SendAdminAsync(client, HttpMethod.Get,
+            $"/v1/roles?tenantId=default&unitOrganizationId={OrganizationId:D}");
+        Assert.False((await listed.Content.ReadFromJsonAsync<PagedResult<RoleInfo>>())!.Items.Single().IsActive);
+    }
+
     private static async Task<HttpResponseMessage> SendAdminAsync(HttpClient client, HttpMethod method,
         string path, object? body = null)
     {

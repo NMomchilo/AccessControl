@@ -8,5 +8,5 @@ public sealed record PolicyRequest(
     string HttpMethod,
     string RouteTemplate,
     bool IsPublic,
-    IReadOnlyList<string> RequiredEntitlements,
+    IReadOnlyList<Guid> RequiredEntitlementIds,
     [property: JsonRequired] Guid UnitOrganizationId);

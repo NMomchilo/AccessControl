@@ -20,29 +20,39 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         logger.LogDebug("Loaded endpoint policy for {TenantId} {Module} {HttpMethod} {RouteTemplate}: {Found}",
             tenantId, module, httpMethod, routeTemplate, entity is not null);
         return entity is null ? null : new EndpointPolicy(entity.TenantId, entity.Module, entity.HttpMethod,
-            entity.RouteTemplate, entity.IsPublic, entity.RequiredEntitlements.Select(x => x.Entitlement).ToList(), entity.UnitOrganizationId);
+            entity.RouteTemplate, entity.IsPublic, entity.RequiredEntitlements.Select(x => x.EntitlementId).ToList(), entity.UnitOrganizationId);
     }
 
-    public async Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken)
+    public async Task<IReadOnlySet<Guid>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken)
     {
         if (roleIds.Count == 0)
         {
             logger.LogDebug("No roles supplied for tenant {TenantId}", tenantId);
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            return new HashSet<Guid>();
         }
 
-        List<string> values = await dbContext.RoleEntitlements.AsNoTracking()
-            .Where(x => x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && roleIds.Contains(x.RoleId))
-            .Select(x => x.Entitlement)
+        List<Guid> values = await dbContext.RoleEntitlements.AsNoTracking()
+            .Where(x => x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId &&
+                roleIds.Contains(x.RoleId) && x.Entitlement.IsActive)
+            .Select(x => x.EntitlementId)
             .ToListAsync(cancellationToken);
         logger.LogDebug("Loaded {EntitlementCount} entitlements for {RoleCount} roles in tenant {TenantId}",
             values.Count, roleIds.Count, tenantId);
-        return values.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return values.ToHashSet();
     }
+
+    public async Task<IReadOnlyList<Guid>> GetAssignedEntitlementIdsAsync(string tenantId,
+        Guid unitOrganizationId, Guid roleId, CancellationToken cancellationToken) =>
+        await dbContext.RoleEntitlements.AsNoTracking().Where(value => value.TenantId == tenantId &&
+            value.UnitOrganizationId == unitOrganizationId && value.RoleId == roleId)
+            .OrderBy(value => value.EntitlementId).Select(value => value.EntitlementId)
+            .ToArrayAsync(cancellationToken);
 
     public async Task UpsertPolicyAsync(EndpointPolicy policy, CancellationToken cancellationToken)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await ValidateActiveEntitlementsAsync(policy.TenantId, policy.UnitOrganizationId,
+            policy.RequiredEntitlementIds, cancellationToken);
         EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.SingleOrDefaultAsync(x =>
             x.TenantId == policy.TenantId && x.UnitOrganizationId == policy.UnitOrganizationId && x.Module == policy.Module &&
             x.HttpMethod == policy.HttpMethod && x.RouteTemplate == policy.RouteTemplate, cancellationToken);
@@ -70,12 +80,14 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
             logger.LogDebug("Replacing entitlements on endpoint policy row {PolicyId}", entity.Id);
         }
 
-        foreach (string entitlement in policy.RequiredEntitlements.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (Guid entitlementId in policy.RequiredEntitlementIds.Distinct())
         {
             dbContext.EndpointPolicyEntitlements.Add(new EndpointPolicyEntitlementEntity
             {
                 EndpointPolicyId = entity.Id,
-                Entitlement = entitlement
+                TenantId = policy.TenantId,
+                UnitOrganizationId = policy.UnitOrganizationId,
+                EntitlementId = entitlementId
             });
         }
 
@@ -83,7 +95,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         await IncrementRevisionAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         logger.LogInformation("Stored endpoint policy {TenantId} {Module} {HttpMethod} {RouteTemplate}; public {IsPublic}, entitlement count {Count}",
-            policy.TenantId, policy.Module, policy.HttpMethod, policy.RouteTemplate, policy.IsPublic, policy.RequiredEntitlements.Count);
+            policy.TenantId, policy.Module, policy.HttpMethod, policy.RouteTemplate, policy.IsPublic, policy.RequiredEntitlementIds.Count);
     }
 
     public async Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
@@ -97,20 +109,21 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
             deleted, tenantId, module, httpMethod, routeTemplate);
     }
 
-    public async Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<string> entitlements, CancellationToken cancellationToken)
+    public async Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<Guid> entitlementIds, CancellationToken cancellationToken)
     {
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await ValidateActiveEntitlementsAsync(tenantId, unitOrganizationId, entitlementIds, cancellationToken);
         int deleted = await dbContext.RoleEntitlements.Where(x => x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.RoleId == roleId)
             .ExecuteDeleteAsync(cancellationToken);
 
-        foreach (string entitlement in entitlements.Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (Guid entitlementId in entitlementIds.Distinct())
         {
             dbContext.RoleEntitlements.Add(new RoleEntitlementEntity
             {
                 TenantId = tenantId,
                 UnitOrganizationId = unitOrganizationId,
                 RoleId = roleId,
-                Entitlement = entitlement
+                EntitlementId = entitlementId
             });
         }
 
@@ -118,7 +131,19 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         await IncrementRevisionAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         logger.LogInformation("Replaced role entitlements for {TenantId} {RoleId}: removed {RemovedCount}, stored {StoredCount}",
-            tenantId, roleId, deleted, entitlements.Count);
+            tenantId, roleId, deleted, entitlementIds.Count);
+    }
+
+    private async Task ValidateActiveEntitlementsAsync(string tenantId, Guid unitOrganizationId,
+        IReadOnlyList<Guid> entitlementIds, CancellationToken cancellationToken)
+    {
+        Guid[] distinct = entitlementIds.Distinct().ToArray();
+        if (distinct.Length == 0) return;
+        int count = await dbContext.Entitlements.CountAsync(value => value.TenantId == tenantId &&
+            value.UnitOrganizationId == unitOrganizationId && value.IsActive && distinct.Contains(value.Id), cancellationToken);
+        if (count != distinct.Length)
+            throw new ArgumentException("Every entitlement ID must be active in the selected tenant and unit organization.",
+                nameof(entitlementIds));
     }
 
     private async Task IncrementRevisionAsync(CancellationToken cancellationToken)

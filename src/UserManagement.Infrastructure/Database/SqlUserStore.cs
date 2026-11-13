@@ -32,11 +32,11 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
             UnitOrganizationMembershipEntity membership = new()
             {
                 TenantId = tenantId, UserId = user.Id, UnitOrganizationId = unitOrganizationId,
-                Roles = [new UserRoleEntity
+                Roles = reviewer.IsActive ? [new UserRoleEntity
                 {
                     TenantId = tenantId, UserId = user.Id, UnitOrganizationId = unitOrganizationId,
                     RoleId = reviewer.Id, Role = reviewer
-                }]
+                }] : []
             };
             user.Organizations.Add(membership);
             if (db.Entry(user).State == EntityState.Detached) db.Users.Add(user);
@@ -136,7 +136,7 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
 
         Guid[] distinct = roleIds.Distinct().ToArray();
         int validCount = await db.Roles.CountAsync(value => value.TenantId == tenantId &&
-            value.UnitOrganizationId == unitOrganizationId && distinct.Contains(value.Id), cancellationToken);
+            value.UnitOrganizationId == unitOrganizationId && value.IsActive && distinct.Contains(value.Id), cancellationToken);
         if (validCount != distinct.Length)
         {
             throw new ArgumentException("Every role ID must exist in the user's organization.", nameof(roleIds));
@@ -215,6 +215,24 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
         return Map(role);
     }
 
+    public async Task<bool> SetRoleActiveAsync(string tenantId, Guid unitOrganizationId, Guid roleId, bool isActive,
+        CancellationToken cancellationToken)
+    {
+        RoleEntity? role = await db.Roles.SingleOrDefaultAsync(value => value.Id == roleId &&
+            value.TenantId == tenantId && value.UnitOrganizationId == unitOrganizationId &&
+            !value.UnitOrganization.IsDeleted, cancellationToken);
+        if (role is null) return false;
+        if (role.IsActive == isActive) return true;
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        role.IsActive = isActive;
+        await db.SaveChangesAsync(cancellationToken);
+        await IncrementRevisionAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        logger.LogInformation("Role {RoleId} active status changed to {IsActive} in tenant {TenantId}, organization {UnitOrganizationId}",
+            roleId, isActive, tenantId, unitOrganizationId);
+        return true;
+    }
+
     public async Task<PageSlice<ManagedRole>> GetRolesPageAsync(string tenantId, Guid? unitOrganizationId,
         int offset, int pageSize, CancellationToken cancellationToken)
     {
@@ -229,7 +247,7 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
         ManagedRole[] items = await query.OrderBy(role => role.UnitOrganizationId)
             .ThenBy(role => role.Code).ThenBy(role => role.Id).Skip(offset).Take(pageSize)
             .Select(role => new ManagedRole(role.Id, role.TenantId, role.UnitOrganizationId,
-                role.Code, role.DisplayName)).ToArrayAsync(cancellationToken);
+                role.Code, role.DisplayName, role.IsActive)).ToArrayAsync(cancellationToken);
         return new PageSlice<ManagedRole>(items, totalCount);
     }
 
@@ -426,11 +444,11 @@ public sealed class SqlUserStore(UserManagementDbContext db, ILogger<SqlUserStor
     private static ManagedUser Map(UserEntity user, UnitOrganizationEntity organization) =>
         new(user.Id, user.TenantId, organization.Id, organization.Name, user.ObjectId, user.Email,
             user.DisplayName, user.IsActive, user.CreatedAt,
-            user.Roles.Where(value => value.UnitOrganizationId == organization.Id)
+            user.Roles.Where(value => value.UnitOrganizationId == organization.Id && value.Role.IsActive)
                 .Select(value => Map(value.Role)).OrderBy(value => value.Code, StringComparer.Ordinal).ToArray());
 
     private static ManagedRole Map(RoleEntity role) =>
-        new(role.Id, role.TenantId, role.UnitOrganizationId, role.Code, role.DisplayName);
+        new(role.Id, role.TenantId, role.UnitOrganizationId, role.Code, role.DisplayName, role.IsActive);
 
     private static ManagedUnitOrganization Map(UnitOrganizationEntity organization) =>
         new(organization.Id, organization.TenantId, organization.Name);

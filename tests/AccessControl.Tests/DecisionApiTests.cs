@@ -35,6 +35,53 @@ public sealed class DecisionApiTests
     }
 
     [Fact]
+    public async Task EntitlementAdministration_RequiresAdministratorCredentialAsync()
+    {
+        await using ApiFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+        CreateEntitlementRequest request = new("tenant-a", Organization, "customers.export", "Export customers");
+        using HttpRequestMessage denied = new(HttpMethod.Post, "/v1/entitlements")
+        {
+            Content = JsonContent.Create(request)
+        };
+        denied.Headers.Add("X-Access-Control-Key", "decision-test-key");
+        using HttpResponseMessage deniedResponse = await client.SendAsync(denied);
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedResponse.StatusCode);
+
+        using HttpResponseMessage created = await SendAdminAsync(client, HttpMethod.Post, "/v1/entitlements", request);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        EntitlementInfo createdItem = (await created.Content.ReadFromJsonAsync<EntitlementInfo>())!;
+        using HttpResponseMessage disabled = await SendAdminAsync(client, HttpMethod.Put,
+            $"/v1/entitlements/{createdItem.Id:D}/active?tenantId=tenant-a&unitOrganizationId={Organization:D}",
+            new SetEntitlementActiveRequest(false));
+        Assert.Equal(HttpStatusCode.NoContent, disabled.StatusCode);
+        using HttpResponseMessage missingFlag = await SendAdminAsync(client, HttpMethod.Put,
+            $"/v1/entitlements/{createdItem.Id:D}/active?tenantId=tenant-a&unitOrganizationId={Organization:D}",
+            new { });
+        Assert.Equal(HttpStatusCode.BadRequest, missingFlag.StatusCode);
+
+        string renamePath = $"/v1/entitlements/{createdItem.Id:D}/display-name?tenantId=tenant-a&unitOrganizationId={Organization:D}";
+        using HttpRequestMessage deniedRename = new(HttpMethod.Put, renamePath)
+        {
+            Content = JsonContent.Create(new UpdateEntitlementDisplayNameRequest("New name"))
+        };
+        deniedRename.Headers.Add("X-Access-Control-Key", "decision-test-key");
+        using HttpResponseMessage deniedRenameResponse = await client.SendAsync(deniedRename);
+        Assert.Equal(HttpStatusCode.Unauthorized, deniedRenameResponse.StatusCode);
+        using HttpResponseMessage renamed = await SendAdminAsync(client, HttpMethod.Put, renamePath,
+            new UpdateEntitlementDisplayNameRequest("New name"));
+        Assert.Equal(HttpStatusCode.OK, renamed.StatusCode);
+        Assert.Equal("New name", (await renamed.Content.ReadFromJsonAsync<EntitlementInfo>())?.DisplayName);
+        using HttpResponseMessage missingName = await SendAdminAsync(client, HttpMethod.Put, renamePath,
+            new { });
+        Assert.Equal(HttpStatusCode.BadRequest, missingName.StatusCode);
+        using HttpResponseMessage wrongScope = await SendAdminAsync(client, HttpMethod.Put,
+            $"/v1/entitlements/{createdItem.Id:D}/display-name?tenantId=tenant-a&unitOrganizationId={Guid.NewGuid():D}",
+            new UpdateEntitlementDisplayNameRequest("Wrong scope"));
+        Assert.Equal(HttpStatusCode.NotFound, wrongScope.StatusCode);
+    }
+
+    [Fact]
     public async Task PostDecision_AdminKey_IsRejectedAsync()
     {
         await using ApiFactory factory = new();
@@ -79,7 +126,7 @@ public sealed class DecisionApiTests
             {
                 tenantId = "tenant-a", module = "customers", httpMethod = "GET",
                 routeTemplate = "/customers/{id}", isPublic = true,
-                requiredEntitlements = Array.Empty<string>()
+                requiredEntitlementIds = Array.Empty<Guid>()
             })
         };
         message.Headers.Add("X-Access-Control-Key", "admin-test-key");
@@ -102,7 +149,7 @@ public sealed class DecisionApiTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("/customers/{id}", policy?.RouteTemplate);
-        Assert.Contains("customers.view", policy?.RequiredEntitlements ?? []);
+        Assert.Contains(TestEntitlements.View, policy?.RequiredEntitlementIds ?? []);
     }
 
     [Fact]
@@ -127,13 +174,13 @@ public sealed class DecisionApiTests
             new PolicyRequest("tenant-a", "customers", "GET", "/status", true, [], Guid.Empty));
         using HttpResponseMessage protectedWithoutOrganization = await SendAdminAsync(client, HttpMethod.Put, "/v1/policies",
             new PolicyRequest("tenant-a", "customers", "GET", "/customers/{id}", false,
-                ["customers.view"], Guid.Empty));
+                [TestEntitlements.View], Guid.Empty));
         using HttpResponseMessage policyDeleted = await SendAdminAsync(client, HttpMethod.Delete, "/v1/policies",
             new PolicyKeyRequest("tenant-a", "customers", "GET", "/status", Guid.Empty));
         using HttpResponseMessage grantSaved = await SendAdminAsync(client, HttpMethod.Put, "/v1/roles/entitlements",
-            new RoleEntitlementsRequest("tenant-a", Advisor, ["customers.view"], Organization));
+            new RoleEntitlementsRequest("tenant-a", Advisor, [TestEntitlements.View], Organization));
         using HttpResponseMessage grantWithoutOrganization = await SendAdminAsync(client, HttpMethod.Put,
-            "/v1/roles/entitlements", new RoleEntitlementsRequest("tenant-a", Advisor, ["customers.view"], Guid.Empty));
+            "/v1/roles/entitlements", new RoleEntitlementsRequest("tenant-a", Advisor, [TestEntitlements.View], Guid.Empty));
 
         Assert.Equal(HttpStatusCode.NoContent, policySaved.StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, protectedWithoutOrganization.StatusCode);
@@ -156,7 +203,7 @@ public sealed class DecisionApiTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(Organization, grants?.UnitOrganizationId);
-        Assert.Contains("customers.view", grants?.Entitlements ?? []);
+        Assert.Contains(TestEntitlements.View, grants?.EntitlementIds ?? []);
     }
 
     [Fact]
@@ -181,11 +228,11 @@ public sealed class DecisionApiTests
         Assert.Equal(HttpStatusCode.Unauthorized, missingKey.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, decisionKey.StatusCode);
         Assert.Equal(HttpStatusCode.OK, all.StatusCode);
-        Assert.Equal(["customers.view"], allPage?.Items);
+        Assert.Equal(["customers.view"], allPage?.Items.Select(item => item.Code));
         Assert.Equal(2, allPage?.TotalCount);
         Assert.Equal(1, allPage?.PageSize);
         Assert.Equal(HttpStatusCode.OK, scoped.StatusCode);
-        Assert.Equal(["customers.view"], scopedPage?.Items);
+        Assert.Equal(["customers.view"], scopedPage?.Items.Select(item => item.Code));
         Assert.Equal(1, scopedPage?.TotalCount);
     }
 
@@ -239,23 +286,40 @@ public sealed class DecisionApiTests
     {
         public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken) =>
             Task.FromResult<EndpointPolicy?>(tenantId == "tenant-a" && unitOrganizationId == Organization && module == "customers" && httpMethod == "GET" && routeTemplate == "/customers/{id}"
-                ? new EndpointPolicy(tenantId, module, httpMethod, routeTemplate, false, ["customers.view"], Organization) : null);
+                ? new EndpointPolicy(tenantId, module, httpMethod, routeTemplate, false, [TestEntitlements.View], Organization) : null);
 
-        public Task<IReadOnlySet<string>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlySet<string>>(unitOrganizationId == Organization && roleIds.Contains(Advisor) ? new HashSet<string> { "customers.view" } : new HashSet<string>());
+        public Task<IReadOnlySet<Guid>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlySet<Guid>>(unitOrganizationId == Organization && roleIds.Contains(Advisor) ? new HashSet<Guid> { TestEntitlements.View } : new HashSet<Guid>());
+        public Task<IReadOnlyList<Guid>> GetAssignedEntitlementIdsAsync(string tenantId, Guid unitOrganizationId, Guid roleId,
+            CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<Guid>>([TestEntitlements.View]);
 
         public Task UpsertPolicyAsync(EndpointPolicy policy, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken) => Task.CompletedTask;
-        public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<string> entitlements, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<Guid> entitlementIds, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class FakeEntitlementCatalog : IEntitlementCatalog
     {
+        public Task<EntitlementInfo> CreateAsync(string tenantId, Guid unitOrganizationId, string code,
+            string displayName, CancellationToken cancellationToken) =>
+            Task.FromResult(new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId, code, displayName, true));
+
+        public Task<bool> SetActiveAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
+            bool isActive, CancellationToken cancellationToken) => Task.FromResult(true);
+
+        public Task<EntitlementInfo?> UpdateDisplayNameAsync(string tenantId, Guid unitOrganizationId,
+            Guid entitlementId, string displayName, CancellationToken cancellationToken) =>
+            Task.FromResult<EntitlementInfo?>(unitOrganizationId == Organization
+                ? new EntitlementInfo(entitlementId, tenantId, unitOrganizationId, "customers.export", displayName, true)
+                : null);
+
         public Task<EntitlementPageResponse> ListAsync(string tenantId, Guid? unitOrganizationId, int page,
             int pageSize, CancellationToken cancellationToken)
         {
             string[] values = unitOrganizationId.HasValue ? ["customers.view"] : ["customers.view", "orders.view"];
-            return Task.FromResult(new EntitlementPageResponse(values.Skip((page - 1) * pageSize).Take(pageSize).ToArray(),
+            return Task.FromResult(new EntitlementPageResponse(values.Skip((page - 1) * pageSize).Take(pageSize)
+                .Select(value => new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId ?? Organization,
+                    value, value, true)).ToArray(),
                 page, pageSize, values.Length));
         }
     }
