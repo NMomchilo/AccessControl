@@ -1,5 +1,7 @@
 # Decision API load benchmark
 
+New live SQL Server decision and full middleware flow measurements are in [the 2026-11-18 report](../docs/sqlserver-live-benchmarks-2026-11-18.md). `LocalIdentityProvider` supplies short-lived, locally signed JWTs over loopback HTTPS for this development-only test.
+
 Run from the repository root with a Release build:
 
 ```powershell
@@ -56,24 +58,6 @@ dotnet run --project benchmarks/AccessFlow.Benchmarks -c Release -- `
 
 The [UO benchmark report](../docs/unit-organization-benchmark-2026-11-10.md) contains current local smoke measurements and raw JSON. The [tenant/role-ID benchmark report](../docs/tenant-role-ids-benchmark-2026-11-10.md) contains earlier measurements and raw JSON outputs; it predates UO scoping. The [earlier end-to-end report](../docs/end-to-end-access-flow-benchmark-2026-11-09.md) used string roles. The benchmark JWT is signed and verified locally; it is not an Entra token. The benchmark-only gateway identity is not a production gateway implementation.
 
-## User Management on Docker SQL Server
+## User Management benchmark
 
-Apply the User Management migrations to a dedicated SQL Server database before running the direct database benchmark. Keep the connection string outside repository files:
-
-```powershell
-$env:UserManagementBenchmark__ConnectionString = '<dedicated SQL Server benchmark connection string>'
-dotnet run --project benchmarks/UserManagement.Benchmarks -c Release -- `
-  --database sqlserver --requests 5000 --concurrency 16 `
-  --output artifacts/benchmarks/user-management-sqlserver.json
-```
-
-For the live service benchmark, create UO `33333333-3333-3333-3333-333333333333` and provision the fixed benchmark oid `9155ff4d-2708-4770-b87e-e238645ec5df` there with administrator APIs. No role is needed for this user-resolution benchmark. Then start User Management against that database and use a client credential:
-
-```powershell
-$env:UserManagementBenchmark__ClientKey = '<client credential>'
-dotnet run --project benchmarks/UserManagement.Benchmarks -c Release -- `
-  --remote-url http://localhost:5220 --requests 5000 --concurrency 16 `
-  --output artifacts/benchmarks/user-management-http.json
-```
-
-The first scenario calls SQL Server or HTTP on every request. The second scenario uses warm hits in the bounded client cache and reports zero source calls during measurement. This warm-hit figure is an in-process cache lookup rate, not service throughput. See the [Docker SQL Server benchmark report](../docs/docker-sqlserver-benchmark-2026-11-09.md) for measured results and limitations.
+The direct user-resolution and cache benchmark moved to the separate `UserManagement` repository. Pack its Client and Contracts projects before restoring this repository locally. The combined access-flow benchmark above remains here and calls both running services.

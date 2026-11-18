@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Runtime.InteropServices;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -13,6 +14,8 @@ using UserManagement.Client;
 using UserManagement.Contracts;
 
 BenchmarkSettings settings = BenchmarkSettings.Parse(args);
+string? localAuthority = Environment.GetEnvironmentVariable("AccessFlowBenchmark__Authority");
+using HttpClient authorityClient = new() { BaseAddress = localAuthority is null ? null : new Uri(localAuthority.TrimEnd('/') + "/") };
 using RSA signingRsa = RSA.Create(2048);
 using RSA validationRsa = RSA.Create();
 validationRsa.ImportParameters(signingRsa.ExportParameters(false));
@@ -45,7 +48,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.MapInboundClaims = false;
-        options.TokenValidationParameters = new TokenValidationParameters
+        if (localAuthority is not null)
+        {
+            options.Authority = localAuthority;
+            options.Audience = "api://local-flow-test";
+            options.RequireHttpsMetadata = true;
+        }
+        else options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidIssuer = "access-flow-benchmark",
             ValidAudience = "access-flow-benchmark-api",
@@ -94,8 +103,19 @@ try
         .Select(line => Guid.Parse(line.Trim())).ToArray();
     if (provisionedOids.Length < settings.UserCount)
         throw new ArgumentException("The user IDs file must contain at least --users provisioned oids.");
-    string hotUser = CreateToken(provisionedOids[0], signingKey);
+    string hotUser = await CreateTokenAsync(provisionedOids[0], signingKey, localAuthority is null ? null : authorityClient);
+    FlowCounterSnapshot beforeColdRequest = counters.Snapshot();
+    Stopwatch coldRequest = Stopwatch.StartNew();
     await SendAsync(client, hotUser, "/integration/42", StatusCodes.Status200OK);
+    coldRequest.Stop();
+    FlowCounterSnapshot afterColdRequest = counters.Snapshot();
+    FlowValidationResult coldValidation = new(coldRequest.Elapsed.TotalMilliseconds,
+        afterColdRequest.UserResolutions - beforeColdRequest.UserResolutions,
+        afterColdRequest.AccessDecisions - beforeColdRequest.AccessDecisions,
+        afterColdRequest.ControllerCalls - beforeColdRequest.ControllerCalls);
+    if (coldValidation.UserResolutions != 1 || coldValidation.AccessDecisions != 1 ||
+        coldValidation.ControllerCalls != 1)
+        throw new InvalidOperationException("The first request did not traverse both services before reaching the controller.");
     long controllerBeforeDeny = counters.Snapshot().ControllerCalls;
     await SendAsync(client, hotUser, "/denied/42", StatusCodes.Status403Forbidden);
     if (counters.Snapshot().ControllerCalls != controllerBeforeDeny)
@@ -111,8 +131,8 @@ try
         throw new InvalidOperationException("Request with invalid JWT signature reached the controller.");
     }
 
-    string[] manyUsers = provisionedOids.Take(settings.UserCount)
-        .Select(oid => CreateToken(oid, signingKey)).ToArray();
+    string[] manyUsers = await Task.WhenAll(provisionedOids.Take(settings.UserCount)
+        .Select(oid => CreateTokenAsync(oid, signingKey, localAuthority is null ? null : authorityClient)));
     foreach (string user in manyUsers)
     {
         await SendAsync(client, user, "/integration/42", StatusCodes.Status200OK);
@@ -134,12 +154,18 @@ try
 
     FlowBenchmarkReport report = new(DateTimeOffset.UtcNow, RuntimeInformation.FrameworkDescription,
         RuntimeInformation.OSDescription, Environment.ProcessorCount,
-        "Locally signed RS256 JWT and benchmark Gateway identity, validated on every request", settings, results);
+        localAuthority is null
+            ? "In-process RS256 JWT and benchmark Gateway identity, validated on every request"
+            : "Local HTTPS test authority RS256 JWT and benchmark Gateway identity, validated on every request",
+        settings, coldValidation, results);
     string outputPath = Path.GetFullPath(settings.Output, outputDirectory);
     Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
     await File.WriteAllTextAsync(outputPath, JsonSerializer.Serialize(report,
         new JsonSerializerOptions { WriteIndented = true }));
     Console.WriteLine($"Results saved to {outputPath}");
+    Console.WriteLine($"Cold flow: {coldValidation.ElapsedMs:F2} ms, UM resolves {coldValidation.UserResolutions}, " +
+        $"AC decisions {coldValidation.AccessDecisions}, controller calls {coldValidation.ControllerCalls}; " +
+        "denied route and tampered JWT blocked");
     Console.WriteLine("Scenario | concurrency | requests/s | p95 ms | UM resolves | UM revision polls | AC decisions | controller calls");
     foreach (FlowBenchmarkResult result in results)
     {
@@ -154,8 +180,14 @@ finally
     await app.DisposeAsync();
 }
 
-static string CreateToken(Guid oid, RsaSecurityKey signingKey)
+static async Task<string> CreateTokenAsync(Guid oid, RsaSecurityKey signingKey, HttpClient? authorityClient)
 {
+    if (authorityClient is not null)
+    {
+        JsonElement response = await authorityClient.GetFromJsonAsync<JsonElement>($"token?oid={oid:D}");
+        return response.GetProperty("access_token").GetString()
+            ?? throw new InvalidOperationException("Local authority returned no access token.");
+    }
     JwtSecurityToken token = new("access-flow-benchmark", "access-flow-benchmark-api",
         [new Claim("oid", oid.ToString("D")), new Claim("scp", "user_impersonation")],
         DateTime.UtcNow.AddMinutes(-1), DateTime.UtcNow.AddHours(1),
@@ -325,6 +357,10 @@ internal sealed record FlowBenchmarkResult(string Scenario, int Concurrency, int
     double RequestsPerSecond, double P50Ms, double P95Ms, double P99Ms,
     long UserResolutions, long RevisionPolls, long AccessDecisions, long ControllerCalls);
 
+internal sealed record FlowValidationResult(double ElapsedMs, long UserResolutions,
+    long AccessDecisions, long ControllerCalls);
+
 internal sealed record FlowBenchmarkReport(DateTimeOffset TimestampUtc, string Runtime, string Os,
     int ProcessorCount, string Authentication, BenchmarkSettings Settings,
+    FlowValidationResult ColdValidation,
     IReadOnlyList<FlowBenchmarkResult> Results);

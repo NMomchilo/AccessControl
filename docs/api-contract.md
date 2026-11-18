@@ -1,6 +1,6 @@
 # Access Control API contract
 
-User resolution and UO-scoped role IDs are documented in [User Management API and client](user-management-api.md). The consuming service validates its Entra JWT and trusted gateway UO assertion before Access Control. User Management middleware adds role IDs to `HttpContext.User`; Access Control middleware forwards them for protected decisions.
+User resolution and UO-scoped role IDs are documented in the separate User Management repository's `docs/user-management-api.md`. The consuming service validates its Entra JWT and trusted gateway UO assertion before Access Control. User Management middleware adds role IDs to `HttpContext.User`; Access Control middleware forwards them for protected decisions.
 
 Use HTTPS. Every request except `GET /health` requires `X-Access-Control-Key`. A configured per-client decision key can call only `POST /v1/decisions` for its allowed modules, tenants, and UOs. Non-anonymous decisions also require an Entra bearer token whose validated `oid` matches `subjectId`. Administrator operations require the separate admin key and a validated Entra bearer token. Access Control asks User Management to verify the actor's current administrative duties for each request; the key and token alone do not grant a tenant or UO scope. A missing or invalid key or actor token returns `401`, an actor without the required scope returns `403`, and an unavailable User Management scope lookup returns `503`.
 
@@ -62,7 +62,7 @@ A public policy uses `"isPublic": true` and `"requiredEntitlementIds": []`; an a
 
 `GET /v1/policies?tenantId=default&unitOrganizationId=<uo-guid>&module=customers&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D` returns the policy (`200`) or `404`.
 
-`DELETE /v1/policies` accepts only the key fields (`tenantId`, `unitOrganizationId`, `module`, `httpMethod`, `routeTemplate`) in a JSON body and returns `204`, including if no active policy matches. Deletion is soft: the policy row remains in the database, but the decision evaluator, `GET`, and search exclude it. The authorization revision advances so other instances invalidate cached decisions. A later `PUT` with the same key restores and replaces the policy.
+`DELETE /v1/policies` accepts only the key fields (`tenantId`, `unitOrganizationId`, `module`, `httpMethod`, `routeTemplate`) in a JSON body and returns `204`, including if no active policy matches. Deletion sets `IsActive=false`: the policy row remains in the database, but the decision evaluator, `GET`, and search exclude it. The authorization revision advances so other instances invalidate cached decisions. A later `PUT` with the same key restores and replaces the policy.
 
 ## Role grants
 
@@ -89,6 +89,6 @@ The administrator can list registered entitlements, including disabled and unref
 
 Both return `{ "items": [{ "id": "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "tenantId": "default", "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "code": "customers.view", "displayName": "View customers", "isActive": true }], "totalCount": 1, "page": 1, "pageSize": 100 }`. Rows are ordered by UO ID, code, and entitlement ID. `page` starts at 1, `pageSize` must be 1–100, and invalid or overflowing pagination returns `400`. The endpoint requires the administrator key.
 
-`GET /v1/policies` still reads one active policy by its complete tenant, UO ID, module, HTTP method, and route-template key. For frontend tables, `GET /v1/policies/search?tenantId=default&page=1&pageSize=100` returns a `PolicyPageResponse` with `items`, `totalCount`, `page`, and `pageSize`. Optional `unitOrganizationId`, `module`, and `httpMethod` filters narrow the results; an explicit all-zero UO ID selects global public policies. Each item includes the required entitlement IDs. Search is read-only, excludes soft-deleted policies, and queries the database directly rather than decision caches.
+`GET /v1/policies` still reads one active policy by its complete tenant, UO ID, module, HTTP method, and route-template key. For frontend tables, `GET /v1/policies/search?tenantId=default&page=1&pageSize=100` returns a `PolicyPageResponse` with `items`, `totalCount`, `page`, and `pageSize`. Optional `unitOrganizationId`, `module`, and `httpMethod` filters narrow the results; an explicit all-zero UO ID selects global public policies. Each item includes the required entitlement IDs. Search is read-only, excludes inactive policies, and queries the database directly rather than decision caches.
 
 The decision service validates the forwarded subject token and uses the role IDs asserted by the consuming API. Keep client credentials secret and scope each one to allowed modules, tenants, and UOs. `AllowAnyUnitOrganization` is an explicit choice for a trusted client that handles dynamic UOs. The fresh initial migration targets an empty first-version database and does not import legacy strings.

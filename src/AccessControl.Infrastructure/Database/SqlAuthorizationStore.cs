@@ -17,7 +17,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
     {
         EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.AsNoTracking()
             .Include(x => x.RequiredEntitlements)
-            .SingleOrDefaultAsync(x => !x.IsDeleted && x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
+            .SingleOrDefaultAsync(x => x.IsActive && x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
                 x.HttpMethod == httpMethod && x.RouteTemplate == routeTemplate, cancellationToken);
         logger.LogDebug("Loaded endpoint policy for {TenantId} {Module} {HttpMethod} {RouteTemplate}: {Found}",
             tenantId, module, httpMethod, routeTemplate, entity is not null);
@@ -78,7 +78,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         else
         {
             entity.IsPublic = policy.IsPublic;
-            entity.IsDeleted = false;
+            entity.IsActive = true;
             await dbContext.EndpointPolicyEntitlements.Where(x => x.EndpointPolicyId == entity.Id)
                 .ExecuteDeleteAsync(cancellationToken);
             logger.LogDebug("Replacing entitlements on endpoint policy row {PolicyId}", entity.Id);
@@ -109,16 +109,16 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.SingleOrDefaultAsync(x =>
             x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
             x.HttpMethod == httpMethod && x.RouteTemplate == routeTemplate, cancellationToken);
-        int deleted = entity is { IsDeleted: false } ? 1 : 0;
+        int deactivated = entity is { IsActive: true } ? 1 : 0;
         if (entity is not null)
         {
-            entity.IsDeleted = true;
+            entity.IsActive = false;
             await dbContext.SaveChangesAsync(cancellationToken);
         }
         await IncrementRevisionAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
-        logger.LogInformation("Deleted {Count} endpoint policy rows for {TenantId} {Module} {HttpMethod} {RouteTemplate}",
-            deleted, tenantId, module, httpMethod, routeTemplate);
+        logger.LogInformation("Deactivated {Count} endpoint policy rows for {TenantId} {Module} {HttpMethod} {RouteTemplate}",
+            deactivated, tenantId, module, httpMethod, routeTemplate);
     }
 
     public async Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<Guid> entitlementIds, CancellationToken cancellationToken)

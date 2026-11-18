@@ -10,6 +10,6 @@ public sealed class EndpointPolicyEntity : GeneralEntityBase
     public string HttpMethod { get; set; } = string.Empty;
     public string RouteTemplate { get; set; } = string.Empty;
     public bool IsPublic { get; set; }
-    public bool IsDeleted { get; set; }
+    public bool IsActive { get; set; } = true;
     public List<EndpointPolicyEntitlementEntity> RequiredEntitlements { get; set; } = [];
 }

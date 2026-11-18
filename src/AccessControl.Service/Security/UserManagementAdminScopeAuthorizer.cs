@@ -3,7 +3,6 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using AccessControl.Application;
 using Microsoft.Extensions.Options;
-using UserManagement.Contracts;
 
 namespace AccessControl.Service.Security;
 
@@ -51,7 +50,7 @@ public sealed class UserManagementAdminScopeAuthorizer(HttpClient client, IHttpC
                 return false;
             if (!response.IsSuccessStatusCode)
                 throw new AdminLookupUnavailableException("User Management administrator lookup failed.");
-            AdminAccessInfo? access = await response.Content.ReadFromJsonAsync<AdminAccessInfo>(cancellationToken);
+            UserManagementAdminAccessResponse? access = await response.Content.ReadFromJsonAsync<UserManagementAdminAccessResponse>(cancellationToken);
             if (access is null || !access.IsActive) return false;
             bool permitted = requireSuperAdmin || !lookupOrganization.HasValue
                 ? access.IsSuperAdmin

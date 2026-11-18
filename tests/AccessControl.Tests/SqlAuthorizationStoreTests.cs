@@ -282,7 +282,7 @@ public sealed class SqlAuthorizationStoreTests
         await store.DeletePolicyAsync("tenant-a", Guid.Empty, "customers", "GET", "/status", CancellationToken.None);
 
         EndpointPolicyEntity saved = await context.EndpointPolicies.AsNoTracking().SingleAsync();
-        Assert.True(saved.IsDeleted);
+        Assert.False(saved.IsActive);
         Assert.Null(await store.GetPolicyAsync("tenant-a", Guid.Empty, "customers", "GET", "/status", CancellationToken.None));
         Assert.Empty((await catalog.SearchAsync("tenant-a", null, null, null, 1, 10, CancellationToken.None)).Items);
         Assert.False((await service.DecideAsync(new DecisionRequest(null, "customers", "GET", "/status", "tenant-a", Guid.Empty),
@@ -292,7 +292,7 @@ public sealed class SqlAuthorizationStoreTests
         await store.UpsertPolicyAsync(policy, CancellationToken.None);
 
         Assert.Single(await context.EndpointPolicies.ToArrayAsync());
-        Assert.False((await context.EndpointPolicies.AsNoTracking().SingleAsync()).IsDeleted);
+        Assert.True((await context.EndpointPolicies.AsNoTracking().SingleAsync()).IsActive);
         Assert.True((await service.DecideAsync(new DecisionRequest(null, "customers", "GET", "/status", "tenant-a", Guid.Empty),
             CancellationToken.None)).Permit);
     }

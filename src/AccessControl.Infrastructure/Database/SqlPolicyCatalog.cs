@@ -10,7 +10,7 @@ public sealed class SqlPolicyCatalog(AccessControlDbContext db) : IPolicyCatalog
         string? module, string? httpMethod, int page, int pageSize, CancellationToken cancellationToken)
     {
         IQueryable<EndpointPolicyEntity> query = db.EndpointPolicies.AsNoTracking()
-            .Where(policy => policy.TenantId == tenantId && !policy.IsDeleted);
+            .Where(policy => policy.TenantId == tenantId && policy.IsActive);
         if (unitOrganizationId.HasValue)
             query = query.Where(policy => policy.UnitOrganizationId == unitOrganizationId.Value);
         if (module is not null)

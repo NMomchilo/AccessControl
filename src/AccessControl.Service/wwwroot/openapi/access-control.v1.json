@@ -158,7 +158,7 @@
           "Policies"
         ],
         "summary": "Search endpoint policies",
-        "description": "Lists policies in one tenant. Optional filters narrow by unit organization, module, and HTTP method. The all-zero unit organization ID selects global public policies. SuperAdmin for a tenant-wide list or search; Admin for an assigned unit organization. Soft-deleted policies are excluded.",
+        "description": "Lists policies in one tenant. Optional filters narrow by unit organization, module, and HTTP method. The all-zero unit organization ID selects global public policies. SuperAdmin for a tenant-wide list or search; Admin for an assigned unit organization. Inactive policies are excluded.",
         "operationId": "searchPolicies",
         "security": [
           {
@@ -293,14 +293,14 @@
             "$ref": "#/components/responses/AdminLookupUnavailable"
           }
         },
-        "description": "Admin for the selected unit organization; SuperAdmin for a global public policy. Soft-deleted policies return 404."
+        "description": "Admin for the selected unit organization; SuperAdmin for a global public policy. Inactive policies return 404."
       },
       "put": {
         "tags": [
           "Policies"
         ],
         "summary": "Create or replace an endpoint policy",
-        "description": "Protected policies require nonzero UO ID and entitlements. All-zero UO ID is reserved for a global public policy. A UO-specific policy takes precedence over the global public fallback. Admin for the selected unit organization; SuperAdmin for a global public policy. Upserting a soft-deleted key restores the policy.",
+        "description": "Protected policies require nonzero UO ID and entitlements. All-zero UO ID is reserved for a global public policy. A UO-specific policy takes precedence over the global public fallback. Admin for the selected unit organization; SuperAdmin for a global public policy. Upserting an inactive key reactivates the policy.",
         "operationId": "upsertPolicy",
         "security": [
           {
@@ -369,7 +369,7 @@
         "tags": [
           "Policies"
         ],
-        "summary": "Soft-delete an endpoint policy",
+        "summary": "Deactivate an endpoint policy",
         "operationId": "deletePolicy",
         "security": [
           {

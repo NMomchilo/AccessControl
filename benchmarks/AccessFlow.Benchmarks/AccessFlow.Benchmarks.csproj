@@ -8,7 +8,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
     <ProjectReference Include="..\..\src\AccessControl.Client\AccessControl.Client.csproj" />
-    <ProjectReference Include="..\..\src\UserManagement.Client\UserManagement.Client.csproj" />
-    <ProjectReference Include="..\..\src\UserManagement.Contracts\UserManagement.Contracts.csproj" />
+    <PackageReference Include="UserManagement.Client" Version="0.9.0" />
+    <PackageReference Include="UserManagement.Contracts" Version="0.9.0" />
   </ItemGroup>
 </Project>

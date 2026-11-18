@@ -9,6 +9,6 @@
     <ProjectReference Include="../../src/AccessControl.Client/AccessControl.Client.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\UserManagement.Client\UserManagement.Client.csproj" />
+    <PackageReference Include="UserManagement.Client" Version="0.9.0" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,77 @@
+{
+  "TimestampUtc": "2026-11-18T11:13:46.6931342+00:00",
+  "Runtime": ".NET 10.0.10",
+  "Os": "Microsoft Windows 10.0.22631",
+  "ProcessorCount": 20,
+  "Authentication": "Local HTTPS test authority RS256 JWT and benchmark Gateway identity, validated on every request",
+  "Settings": {
+    "Requests": 1000,
+    "Concurrency": [
+      1,
+      16
+    ],
+    "UserCount": 2,
+    "UserIdsFile": "D:\\git\\back\\ACNugServ\\artifacts\\live-flow\\provisioned-oids.txt",
+    "Output": "artifacts/benchmarks/access-flow-sqlserver-20261118.json"
+  },
+  "ColdValidation": {
+    "ElapsedMs": 168.7562,
+    "UserResolutions": 1,
+    "AccessDecisions": 1,
+    "ControllerCalls": 1
+  },
+  "Results": [
+    {
+      "Scenario": "one warm user",
+      "Concurrency": 1,
+      "Requests": 1000,
+      "RequestsPerSecond": 1094.1235064120012,
+      "P50Ms": 0.8481,
+      "P95Ms": 1.2363,
+      "P99Ms": 1.5226,
+      "UserResolutions": 0,
+      "RevisionPolls": 1,
+      "AccessDecisions": 1000,
+      "ControllerCalls": 1000
+    },
+    {
+      "Scenario": "2 existing users",
+      "Concurrency": 1,
+      "Requests": 1000,
+      "RequestsPerSecond": 1079.0450106361466,
+      "P50Ms": 0.8519,
+      "P95Ms": 1.3744,
+      "P99Ms": 1.8538,
+      "UserResolutions": 0,
+      "RevisionPolls": 1,
+      "AccessDecisions": 1000,
+      "ControllerCalls": 1000
+    },
+    {
+      "Scenario": "one warm user",
+      "Concurrency": 16,
+      "Requests": 1000,
+      "RequestsPerSecond": 8816.064279687876,
+      "P50Ms": 1.3399,
+      "P95Ms": 4.0703,
+      "P99Ms": 10.0794,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 1000,
+      "ControllerCalls": 1000
+    },
+    {
+      "Scenario": "2 existing users",
+      "Concurrency": 16,
+      "Requests": 1000,
+      "RequestsPerSecond": 10142.574165037939,
+      "P50Ms": 1.4351,
+      "P95Ms": 2.7891,
+      "P99Ms": 3.351,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 1000,
+      "ControllerCalls": 1000
+    }
+  ]
+}

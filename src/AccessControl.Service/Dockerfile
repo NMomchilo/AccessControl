@@ -18,15 +18,17 @@ COPY ["src/AccessControl.Application/AccessControl.Application.csproj", "src/Acc
 COPY ["src/AccessControl.Domain/AccessControl.Domain.csproj", "src/AccessControl.Domain/"]
 COPY ["src/AccessControl.Contracts/AccessControl.Contracts.csproj", "src/AccessControl.Contracts/"]
 COPY ["src/AccessControl.Infrastructure/AccessControl.Infrastructure.csproj", "src/AccessControl.Infrastructure/"]
-RUN dotnet restore "./src/AccessControl.Service/AccessControl.Service.csproj"
+COPY ["src/AdminManagement.Security/AdminManagement.Security.csproj", "src/AdminManagement.Security/"]
+COPY ["src/Common.Persistence/Common.Persistence.csproj", "src/Common.Persistence/"]
+RUN dotnet restore "./src/AccessControl.Service/AccessControl.Service.csproj" --source https://api.nuget.org/v3/index.json
 COPY . .
 WORKDIR "/src/src/AccessControl.Service"
-RUN dotnet build "./AccessControl.Service.csproj" -c $BUILD_CONFIGURATION -o /app/build
+RUN dotnet build "./AccessControl.Service.csproj" -c $BUILD_CONFIGURATION -o /app/build --no-restore
 
 # This stage is used to publish the service project to be copied to the final stage
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./AccessControl.Service.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "./AccessControl.Service.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false --no-restore
 
 # This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
 FROM base AS final
