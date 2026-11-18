@@ -5,7 +5,7 @@ using UserManagement.Domain;
 
 namespace UserManagement.Application;
 
-public sealed class UserManagementService(IUserStore store, IOptions<UserManagementOptions> options,
+public sealed partial class UserManagementService(IUserStore store, IOptions<UserManagementOptions> options,
     ILogger<UserManagementService> logger)
 {
     public async Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request, CancellationToken cancellationToken)
@@ -13,13 +13,14 @@ public sealed class UserManagementService(IUserStore store, IOptions<UserManagem
         ArgumentNullException.ThrowIfNull(request);
         string tenantId = NormalizeTenant(request.TenantId);
         Guid organizationId = NormalizeOrganizationId(request.UnitOrganizationId);
-        string organizationName = NormalizeOrganizationName(request.UnitOrganizationName);
         string objectId = NormalizeObjectId(request.ObjectId);
-        string? email = NormalizeOptional(request.Email, options.Value.MaximumEmailLength, nameof(request.Email));
-        string? displayName = NormalizeOptional(request.DisplayName, options.Value.MaximumDisplayNameLength,
-            nameof(request.DisplayName));
-        ManagedUser user = await store.ResolveAsync(tenantId, organizationId, organizationName,
-            objectId, email, displayName, cancellationToken);
+        ManagedUser? user = await store.GetAsync(tenantId, organizationId, objectId, cancellationToken);
+        if (user is null)
+        {
+            logger.LogInformation("No provisioned user or membership for tenant {TenantId}, organization {UnitOrganizationId}",
+                tenantId, organizationId);
+            throw new KeyNotFoundException("User or organization membership has not been provisioned.");
+        }
         logger.LogDebug("Resolved user {UserId}; active {IsActive}, roles {RoleCount}", user.Id, user.IsActive, user.Roles.Count);
         return Map(user);
     }

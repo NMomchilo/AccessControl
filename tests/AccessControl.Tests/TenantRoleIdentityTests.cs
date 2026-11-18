@@ -19,26 +19,30 @@ public sealed class TenantRoleIdentityTests
     private static readonly Guid OrganizationB = Guid.Parse("b27e8551-69fa-43d9-b0fa-8f3e0a485b42");
 
     [Fact]
-    public async Task SameOidInDifferentTenants_HasSeparateUsersAndReviewerRolesAsync()
+    public async Task SameOidInDifferentTenants_HasSeparateUsersWithoutDefaultRolesAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
         await using UserManagementDbContext db = new(
-            new DbContextOptionsBuilder<UserManagementDbContext>().UseSqlite(connection).Options);
+            new DbContextOptionsBuilder<UserManagementDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = new(new SqlUserStore(db, NullLogger<SqlUserStore>.Instance),
             Options.Create(new UserManagementOptions()), NullLogger<UserManagementService>.Instance);
 
+        await service.CreateUnitOrganizationAsync(new(OrganizationA, "tenant-a", "Organization A"), default);
+        await service.CreateUnitOrganizationAsync(new(OrganizationB, "tenant-b", "Organization B"), default);
+        Assert.True(await service.CreateUserInOrganizationAsync("tenant-a", OrganizationA, Oid, "User", null, default));
+        Assert.True(await service.CreateUserInOrganizationAsync("tenant-b", OrganizationB, Oid, "User", null, default));
+
         UserIdentityResponse first = await service.ResolveAsync(
-            new UserIdentityRequest("tenant-a", OrganizationA, "Organization A", Oid, null, null), CancellationToken.None);
+            new UserIdentityRequest("tenant-a", OrganizationA, Oid), CancellationToken.None);
         UserIdentityResponse second = await service.ResolveAsync(
-            new UserIdentityRequest("tenant-b", OrganizationB, "Organization B", Oid, null, null), CancellationToken.None);
+            new UserIdentityRequest("tenant-b", OrganizationB, Oid), CancellationToken.None);
 
         Assert.NotEqual(first.UserId, second.UserId);
-        Assert.NotEqual(first.Roles.Single().RoleId, second.Roles.Single().RoleId);
-        Assert.All([first, second], value => Assert.Equal("reviewer", value.Roles.Single().Code));
+        Assert.All([first, second], value => Assert.Empty(value.Roles));
         Assert.Equal(2, await db.Users.CountAsync());
-        Assert.Equal(2, await db.Roles.CountAsync());
+        Assert.Empty(await db.Roles.ToListAsync());
     }
 
     [Fact]
@@ -47,15 +51,19 @@ public sealed class TenantRoleIdentityTests
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
         await using UserManagementDbContext db = new(
-            new DbContextOptionsBuilder<UserManagementDbContext>().UseSqlite(connection).Options);
+            new DbContextOptionsBuilder<UserManagementDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = new(new SqlUserStore(db, NullLogger<SqlUserStore>.Instance),
             Options.Create(new UserManagementOptions()), NullLogger<UserManagementService>.Instance);
-        await service.ResolveAsync(new UserIdentityRequest("tenant-a", OrganizationA, "Organization A", Oid, null, null), CancellationToken.None);
-        await service.ResolveAsync(new UserIdentityRequest("tenant-b", OrganizationB, "Organization B", Oid, null, null), CancellationToken.None);
-        RoleInfo first = await service.CreateRoleAsync(new CreateRoleRequest("tenant-a", OrganizationA, "reviewer-one", "Reviewer"), CancellationToken.None);
-        RoleInfo second = await service.CreateRoleAsync(new CreateRoleRequest("tenant-a", OrganizationA, "reviewer-two", "Reviewer"), CancellationToken.None);
-        RoleInfo otherTenant = await service.CreateRoleAsync(new CreateRoleRequest("tenant-b", OrganizationB, "reviewer-one", "Reviewer"), CancellationToken.None);
+        await service.CreateUnitOrganizationAsync(new(OrganizationA, "tenant-a", "Organization A"), default);
+        await service.CreateUnitOrganizationAsync(new(OrganizationB, "tenant-b", "Organization B"), default);
+        Assert.True(await service.CreateUserInOrganizationAsync("tenant-a", OrganizationA, Oid, "User", null, default));
+        Assert.True(await service.CreateUserInOrganizationAsync("tenant-b", OrganizationB, Oid, "User", null, default));
+        await service.ResolveAsync(new UserIdentityRequest("tenant-a", OrganizationA, Oid), CancellationToken.None);
+        await service.ResolveAsync(new UserIdentityRequest("tenant-b", OrganizationB, Oid), CancellationToken.None);
+        RoleInfo first = await service.CreateRoleAsync(new CreateRoleRequest("tenant-a", OrganizationA, "reader-one", "Reader"), CancellationToken.None);
+        RoleInfo second = await service.CreateRoleAsync(new CreateRoleRequest("tenant-a", OrganizationA, "reader-two", "Reader"), CancellationToken.None);
+        RoleInfo otherTenant = await service.CreateRoleAsync(new CreateRoleRequest("tenant-b", OrganizationB, "reader-one", "Reader"), CancellationToken.None);
 
         Assert.NotEqual(first.RoleId, second.RoleId);
         Assert.Equal(first.DisplayName, second.DisplayName);
@@ -76,7 +84,7 @@ public sealed class TenantRoleIdentityTests
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
         await using AccessControlDbContext db = new(
-            new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
+            new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         db.Entitlements.Add(new EntitlementEntity
         {
@@ -86,18 +94,22 @@ public sealed class TenantRoleIdentityTests
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
         SqlAuthorizationStore store = new(db, NullLogger<SqlAuthorizationStore>.Instance);
+        Guid currentRole = allowed;
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
         await store.UpsertPolicyAsync(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}",
             false, [TestEntitlements.View], organizationId), CancellationToken.None);
         await store.ReplaceRoleEntitlementsAsync("tenant-a", organizationId, allowed, [TestEntitlements.View], CancellationToken.None);
 
-        Assert.True((await service.DecideAsync(new DecisionRequest(Oid, [allowed], "customers", "GET",
-            "/customers/{id}", "tenant-a", organizationId), CancellationToken.None)).Permit);
-        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, [denied], "customers", "GET",
-            "/customers/{id}", "tenant-a", organizationId), CancellationToken.None)).Permit);
-        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, [allowed], "customers", "GET",
-            "/customers/{id}", "tenant-b", organizationId), CancellationToken.None)).Permit);
-        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, [allowed], "customers", "GET",
-            "/customers/{id}", "tenant-a", OrganizationB), CancellationToken.None)).Permit);
+        Assert.True((await service.DecideAsync(new DecisionRequest(Oid, "customers", "GET",
+            "/customers/{id}", "tenant-a", organizationId, [currentRole]), CancellationToken.None)).Permit);
+        currentRole = denied;
+        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, "customers", "GET",
+            "/customers/{id}", "tenant-a", organizationId, [currentRole]), CancellationToken.None)).Permit);
+        currentRole = allowed;
+        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, "customers", "GET",
+            "/customers/{id}", "tenant-b", organizationId, [currentRole]), CancellationToken.None)).Permit);
+        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, "customers", "GET",
+            "/customers/{id}", "tenant-a", OrganizationB, [currentRole]), CancellationToken.None)).Permit);
     }
+
 }

@@ -16,6 +16,45 @@ public sealed class UserManagementStoreTests
     private static readonly Guid OtherOrganizationId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
     [Fact]
+    public async Task ResolveUnknownUser_DoesNotCreateUserOrMembershipAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using UserManagementDbContext db = CreateDb(connection);
+        await db.Database.EnsureCreatedAsync();
+        UserManagementService service = CreateService(db);
+        long revision = await service.GetRevisionAsync(default);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.ResolveAsync(
+            new UserIdentityRequest("default", OrganizationId, Oid), default));
+        Assert.Empty(await db.Users.ToListAsync());
+        Assert.Empty(await db.UnitOrganizationMemberships.ToListAsync());
+        Assert.Empty(await db.UnitOrganizations.ToListAsync());
+        Assert.Empty(await db.Roles.ToListAsync());
+        Assert.Equal(revision, await service.GetRevisionAsync(default));
+    }
+
+    [Fact]
+    public async Task ResolveExistingUserWithoutMembership_DoesNotCreateMembershipOrRoleAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using UserManagementDbContext db = CreateDb(connection);
+        await db.Database.EnsureCreatedAsync();
+        UserManagementService service = CreateService(db);
+        await service.CreateUnitOrganizationAsync(new(OrganizationId, "default", "Alpha"), default);
+        Assert.True(await service.CreateUserAsync("default", Oid, "User", null, default));
+        long revision = await service.GetRevisionAsync(default);
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.ResolveAsync(
+            new UserIdentityRequest("default", OrganizationId, Oid), default));
+
+        Assert.Empty(await db.UnitOrganizationMemberships.ToListAsync());
+        Assert.Empty(await db.Roles.ToListAsync());
+        Assert.Equal(revision, await service.GetRevisionAsync(default));
+    }
+
+    [Fact]
     public async Task AdminReads_ShowScopedAssignmentsAndFindEmailWithoutProvisioningAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
@@ -23,8 +62,10 @@ public sealed class UserManagementStoreTests
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
-        await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, "Alice@Example.com", "Alice"), CancellationToken.None);
-        await service.ResolveAsync(new("default", OtherOrganizationId, "Beta", Oid, "Alice@Example.com", "Alice"), CancellationToken.None);
+        await ProvisionAsync(service, db, "default", OrganizationId, "Alpha", Oid, "Alice@Example.com", "Alice");
+        await ProvisionAsync(service, db, "default", OtherOrganizationId, "Beta", Oid, "Alice@Example.com", "Alice");
+        await service.ResolveAsync(new("default", OrganizationId, Oid), CancellationToken.None);
+        await service.ResolveAsync(new("default", OtherOrganizationId, Oid), CancellationToken.None);
         RoleInfo extra = await service.CreateRoleAsync(new("default", OrganizationId, "approver", "Approver"), CancellationToken.None);
         await service.ReplaceRolesAsync("default", OrganizationId, Oid, new([extra.RoleId]), CancellationToken.None);
         Assert.True(await service.SetRoleActiveAsync("default", OrganizationId, extra.RoleId,
@@ -37,8 +78,7 @@ public sealed class UserManagementStoreTests
             .Roles.Select(x => x.RoleId));
         Assert.False(users.Items.Single().Memberships.Single(x => x.UnitOrganizationId == OrganizationId)
             .Roles.Single().IsActive);
-        Assert.Equal("reviewer", users.Items.Single().Memberships.Single(x => x.UnitOrganizationId == OtherOrganizationId)
-            .Roles.Single().Code);
+        Assert.Empty(users.Items.Single().Memberships.Single(x => x.UnitOrganizationId == OtherOrganizationId).Roles);
 
         PagedResult<UserSummary> matches = (await service.GetUsersPageAsync("default", OrganizationId, 1, 10,
             CancellationToken.None, "alice@example.com"))!;
@@ -50,30 +90,32 @@ public sealed class UserManagementStoreTests
         Assert.Null(await service.GetRoleAsync("default", OtherOrganizationId, extra.RoleId, CancellationToken.None));
 
         string secondOid = Guid.NewGuid().ToString("D");
-        await service.ResolveAsync(new("default", OrganizationId, "Alpha", secondOid, "ALICE@example.com", "Other"),
+        await ProvisionAsync(service, db, "default", OrganizationId, "Alpha", secondOid, "ALICE@example.com", "Other");
+        await service.ResolveAsync(new("default", OrganizationId, secondOid),
             CancellationToken.None);
         Assert.Equal(2, (await service.GetUsersPageAsync("default", OrganizationId, 1, 10,
             CancellationToken.None, "alice@example.com"))!.TotalCount);
     }
 
     [Fact]
-    public async Task ResolveAsync_FirstSignIn_CreatesReviewerAndReusesUserAsync()
+    public async Task ResolveAsync_ExistingUserDoesNotChangeProfileAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
+        await ProvisionAsync(service, db, "default", OrganizationId, "Alpha", Oid, "first@example.com", "First");
 
-        UserIdentityResponse first = await service.ResolveAsync(new UserIdentityRequest("default", OrganizationId, "Alpha", Oid, "first@example.com", "First"),
+        UserIdentityResponse first = await service.ResolveAsync(new UserIdentityRequest("default", OrganizationId, Oid),
             CancellationToken.None);
-        UserIdentityResponse second = await service.ResolveAsync(new UserIdentityRequest("default", OrganizationId, "Untrusted rename", Oid, "second@example.com", "Second"),
+        UserIdentityResponse second = await service.ResolveAsync(new UserIdentityRequest("default", OrganizationId, Oid),
             CancellationToken.None);
 
         Assert.Equal(first.UserId, second.UserId);
-        Assert.Equal("reviewer", second.Roles.Single().Code);
+        Assert.Empty(second.Roles);
         Assert.Single(await db.Users.ToListAsync());
-        Assert.Equal("second@example.com", (await db.Users.SingleAsync()).Email);
+        Assert.Equal("first@example.com", (await db.Users.SingleAsync()).Email);
         Assert.Equal("Alpha", second.UnitOrganizationName);
     }
 
@@ -85,16 +127,18 @@ public sealed class UserManagementStoreTests
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
-        UserIdentityResponse reviewer = await service.ResolveAsync(new UserIdentityRequest("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None);
+        await ProvisionAsync(service, db, "default", OrganizationId, "Alpha", Oid);
+        RoleInfo reader = await service.CreateRoleAsync(new CreateRoleRequest("default", OrganizationId, "reader", "Reader"), CancellationToken.None);
+        await service.ReplaceRolesAsync("default", OrganizationId, Oid, new ReplaceRolesRequest([reader.RoleId]), CancellationToken.None);
         RoleInfo admin = await service.CreateRoleAsync(new CreateRoleRequest("default", OrganizationId, "Admin", "Administrator"), CancellationToken.None);
 
         bool found = await service.ReplaceRolesAsync("default", OrganizationId, Oid,
-            new ReplaceRolesRequest([reviewer.Roles.Single().RoleId, admin.RoleId]), CancellationToken.None);
+            new ReplaceRolesRequest([reader.RoleId, admin.RoleId]), CancellationToken.None);
         UserIdentityResponse? updated = await service.GetAsync("default", OrganizationId, Oid, CancellationToken.None);
 
         Assert.True(found);
         Assert.NotNull(updated);
-        Assert.Equal(["admin", "reviewer"], updated.Roles.Select(role => role.Code).ToArray());
+        Assert.Equal(["admin", "reader"], updated.Roles.Select(role => role.Code).ToArray());
     }
 
     [Fact]
@@ -105,10 +149,11 @@ public sealed class UserManagementStoreTests
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
-        await service.ResolveAsync(new UserIdentityRequest("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None);
+        await ProvisionAsync(service, db, "default", OrganizationId, "Alpha", Oid);
+        await service.ResolveAsync(new UserIdentityRequest("default", OrganizationId, Oid), CancellationToken.None);
 
         Assert.True(await service.SetActiveAsync("default", Oid, new SetActiveRequest(false), CancellationToken.None));
-        UserIdentityResponse resolved = await service.ResolveAsync(new UserIdentityRequest("default", OrganizationId, "Alpha", Oid, null, null),
+        UserIdentityResponse resolved = await service.ResolveAsync(new UserIdentityRequest("default", OrganizationId, Oid),
             CancellationToken.None);
 
         Assert.False(resolved.IsActive);
@@ -122,37 +167,83 @@ public sealed class UserManagementStoreTests
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
-        UserIdentityResponse first = await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None);
-        Guid reviewerId = first.Roles.Single().RoleId;
+        await ProvisionAsync(service, db, "default", OrganizationId, "Alpha", Oid);
+        RoleInfo reader = await service.CreateRoleAsync(new("default", OrganizationId, "reader", "Reader"), CancellationToken.None);
+        await service.ReplaceRolesAsync("default", OrganizationId, Oid, new([reader.RoleId]), CancellationToken.None);
+        Guid roleId = reader.RoleId;
         long before = await service.GetRevisionAsync(CancellationToken.None);
 
-        Assert.True(await service.SetRoleActiveAsync("default", OrganizationId, reviewerId, new SetActiveRequest(false), CancellationToken.None));
+        Assert.True(await service.SetRoleActiveAsync("default", OrganizationId, roleId, new SetActiveRequest(false), CancellationToken.None));
         Assert.Equal(before + 1, await service.GetRevisionAsync(CancellationToken.None));
-        Assert.Empty((await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None)).Roles);
+        Assert.Empty((await service.ResolveAsync(new("default", OrganizationId, Oid), CancellationToken.None)).Roles);
         await Assert.ThrowsAsync<ArgumentException>(() => service.ReplaceRolesAsync("default", OrganizationId, Oid,
-            new ReplaceRolesRequest([reviewerId]), CancellationToken.None));
-        Assert.True(await service.SetRoleActiveAsync("default", OrganizationId, reviewerId, new SetActiveRequest(true), CancellationToken.None));
-        Assert.Equal(reviewerId, (await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None)).Roles.Single().RoleId);
+            new ReplaceRolesRequest([roleId]), CancellationToken.None));
+        Assert.True(await service.SetRoleActiveAsync("default", OrganizationId, roleId, new SetActiveRequest(true), CancellationToken.None));
+        Assert.Equal(roleId, (await service.ResolveAsync(new("default", OrganizationId, Oid), CancellationToken.None)).Roles.Single().RoleId);
     }
 
     [Fact]
-    public async Task FirstSignIn_DoesNotAssignDisabledReviewerAsync()
+    public async Task AdministrativeCreation_LeavesRolesEmptyUntilExplicitAssignmentAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
-        Guid reviewerId = (await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null),
-            CancellationToken.None)).Roles.Single().RoleId;
-        await service.SetRoleActiveAsync("default", OrganizationId, reviewerId, new SetActiveRequest(false), CancellationToken.None);
+        await service.CreateUnitOrganizationAsync(new(OrganizationId, "default", "Alpha"), CancellationToken.None);
         string newOid = Guid.NewGuid().ToString("D");
+        Assert.True(await service.CreateUserInOrganizationAsync("default", OrganizationId, newOid,
+            "New", null, CancellationToken.None));
 
-        UserIdentityResponse created = await service.ResolveAsync(new("default", OrganizationId, "Alpha", newOid,
-            null, null), CancellationToken.None);
+        UserIdentityResponse created = await service.ResolveAsync(new("default", OrganizationId, newOid), CancellationToken.None);
 
         Assert.Empty(created.Roles);
         Assert.False(await db.UserRoles.AnyAsync(value => value.UserId == created.UserId));
+        Assert.Empty(await db.Roles.ToListAsync());
+        RoleInfo reader = await service.CreateRoleAsync(new("default", OrganizationId, "reader", "Reader"), default);
+        Assert.True(await service.ReplaceRolesAsync("default", OrganizationId, newOid,
+            new([reader.RoleId]), default));
+        Assert.Equal(reader.RoleId, (await service.ResolveAsync(new("default", OrganizationId, newOid),
+            default)).Roles.Single().RoleId);
+    }
+
+    [Fact]
+    public async Task AdministrativeCreation_WithExistingRole_AssignsOnlyThatRoleAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using UserManagementDbContext db = CreateDb(connection);
+        await db.Database.EnsureCreatedAsync();
+        UserManagementService service = CreateService(db);
+        await service.CreateUnitOrganizationAsync(new(OrganizationId, "default", "Alpha"), default);
+        RoleInfo reader = await service.CreateRoleAsync(new("default", OrganizationId, "reader", "Reader"), default);
+
+        Assert.True(await service.CreateUserInOrganizationAsync("default", OrganizationId, Oid,
+            "User", null, default, [reader.RoleId]));
+
+        UserIdentityResponse user = await service.ResolveAsync(new("default", OrganizationId, Oid), default);
+        Assert.Equal(reader.RoleId, Assert.Single(user.Roles).RoleId);
+        Assert.Single(await db.Roles.ToListAsync());
+    }
+
+    [Fact]
+    public async Task AdministrativeCreation_WithForeignRole_DoesNotCreateUserAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using UserManagementDbContext db = CreateDb(connection);
+        await db.Database.EnsureCreatedAsync();
+        UserManagementService service = CreateService(db);
+        await service.CreateUnitOrganizationAsync(new(OrganizationId, "default", "Alpha"), default);
+        await service.CreateUnitOrganizationAsync(new(OtherOrganizationId, "default", "Beta"), default);
+        RoleInfo foreign = await service.CreateRoleAsync(new("default", OtherOrganizationId, "reader", "Reader"), default);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateUserInOrganizationAsync(
+            "default", OrganizationId, Oid, "User", null, default, [foreign.RoleId]));
+
+        Assert.Empty(await db.Users.ToListAsync());
+        Assert.Empty(await db.UnitOrganizationMemberships.ToListAsync());
+        Assert.Empty(await db.UserRoles.ToListAsync());
     }
 
     [Fact]
@@ -165,20 +256,26 @@ public sealed class UserManagementStoreTests
         UserManagementService service = CreateService(db);
 
         await Assert.ThrowsAsync<ArgumentException>(() => service.ResolveAsync(
-            new UserIdentityRequest("default", OrganizationId, "Alpha", "not-an-oid", null, null), CancellationToken.None));
+            new UserIdentityRequest("default", OrganizationId, "not-an-oid"), CancellationToken.None));
         Assert.Empty(await db.Users.ToListAsync());
     }
 
     [Fact]
-    public async Task SameOidAcrossOrganizations_HasSeparateReviewerRolesAndAssignmentsAsync()
+    public async Task SameOidAcrossOrganizations_RequiresExplicitRoleAssignmentsAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
-        UserIdentityResponse first = await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None);
-        UserIdentityResponse second = await service.ResolveAsync(new("default", OtherOrganizationId, "Beta", Oid, null, null), CancellationToken.None);
+        await ProvisionAsync(service, db, "default", OrganizationId, "Alpha", Oid);
+        await ProvisionAsync(service, db, "default", OtherOrganizationId, "Beta", Oid);
+        RoleInfo alphaRole = await service.CreateRoleAsync(new("default", OrganizationId, "reader", "Reader"), default);
+        RoleInfo betaRole = await service.CreateRoleAsync(new("default", OtherOrganizationId, "reader", "Reader"), default);
+        await service.ReplaceRolesAsync("default", OrganizationId, Oid, new([alphaRole.RoleId]), default);
+        await service.ReplaceRolesAsync("default", OtherOrganizationId, Oid, new([betaRole.RoleId]), default);
+        UserIdentityResponse first = await service.ResolveAsync(new("default", OrganizationId, Oid), CancellationToken.None);
+        UserIdentityResponse second = await service.ResolveAsync(new("default", OtherOrganizationId, Oid), CancellationToken.None);
         Assert.Equal(first.UserId, second.UserId);
         Assert.NotEqual(first.Roles.Single().RoleId, second.Roles.Single().RoleId);
         Assert.Equal(2, await db.UnitOrganizationMemberships.CountAsync());
@@ -198,9 +295,10 @@ public sealed class UserManagementStoreTests
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
-        await service.ResolveAsync(new("tenant-a", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None);
-        await Assert.ThrowsAsync<ArgumentException>(() => service.ResolveAsync(
-            new("tenant-b", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None));
+        await ProvisionAsync(service, db, "tenant-a", OrganizationId, "Alpha", Oid);
+        await service.ResolveAsync(new("tenant-a", OrganizationId, Oid), CancellationToken.None);
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.ResolveAsync(
+            new("tenant-b", OrganizationId, Oid), CancellationToken.None));
     }
 
     [Fact]
@@ -211,12 +309,13 @@ public sealed class UserManagementStoreTests
         await using UserManagementDbContext db = CreateDb(connection);
         await db.Database.EnsureCreatedAsync();
         UserManagementService service = CreateService(db);
-        await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None);
+        await ProvisionAsync(service, db, "default", OrganizationId, "Alpha", Oid);
+        await service.ResolveAsync(new("default", OrganizationId, Oid), CancellationToken.None);
 
-        await Assert.ThrowsAsync<UnitOrganizationConflictException>(() => service.ResolveAsync(
-            new("default", OtherOrganizationId, "Alpha", Oid, null, null), CancellationToken.None));
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => service.ResolveAsync(
+            new("default", OtherOrganizationId, Oid), CancellationToken.None));
         UserIdentityResponse existing = await service.ResolveAsync(
-            new("default", OrganizationId, "Forged rename", Oid, null, null), CancellationToken.None);
+            new("default", OrganizationId, Oid), CancellationToken.None);
 
         Assert.Equal("Alpha", existing.UnitOrganizationName);
         Assert.Single(await db.UnitOrganizations.ToListAsync());
@@ -266,144 +365,10 @@ public sealed class UserManagementStoreTests
             new ReplaceRolesRequest([]), CancellationToken.None));
         Assert.Null(await service.GetAsync("default", OrganizationId, Oid, CancellationToken.None));
 
-        await service.ResolveAsync(new("default", OtherOrganizationId, "Beta", Oid, null, null), CancellationToken.None);
+        await ProvisionAsync(service, db, "default", OtherOrganizationId, "Beta", Oid);
         Assert.False(await service.ReplaceRolesAsync("default", OrganizationId, Oid,
             new ReplaceRolesRequest([]), CancellationToken.None));
         Assert.Null(await service.GetAsync("default", OrganizationId, Oid, CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task ConcurrentFirstSignIn_ReusesWinningOrganizationUserAndReviewerAsync()
-    {
-        string path = Path.Combine(Path.GetTempPath(), $"um-concurrency-{Guid.NewGuid():N}.db");
-        try
-        {
-            await using (UserManagementDbContext setup = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").Options))
-                await setup.Database.EnsureCreatedAsync();
-            BlockingFirstSave<UnitOrganizationEntity> gate = new();
-            await using UserManagementDbContext firstDb = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").AddInterceptors(gate).Options);
-            await using UserManagementDbContext secondDb = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").Options);
-            UserManagementService firstService = CreateService(firstDb);
-            UserManagementService secondService = CreateService(secondDb);
-            UserIdentityRequest request = new("default", OrganizationId, "Alpha", Oid, null, null);
-
-            Task<UserIdentityResponse> first = firstService.ResolveAsync(request, CancellationToken.None);
-            await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
-            UserIdentityResponse winner;
-            try
-            {
-                winner = await secondService.ResolveAsync(request, CancellationToken.None);
-            }
-            finally
-            {
-                gate.Release();
-            }
-            UserIdentityResponse loser = await first.WaitAsync(TimeSpan.FromSeconds(3));
-
-            Assert.Equal(winner.UserId, loser.UserId);
-            Assert.Equal(winner.Roles.Single().RoleId, loser.Roles.Single().RoleId);
-            Assert.Single(await secondDb.UnitOrganizations.AsNoTracking().ToListAsync());
-            Assert.Single(await secondDb.Users.AsNoTracking().ToListAsync());
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            if (File.Exists(path)) File.Delete(path);
-        }
-    }
-
-    [Fact]
-    public async Task ConcurrentReviewerCreation_ReloadsExistingMembershipInsteadOfReinsertingUserAsync()
-    {
-        string path = Path.Combine(Path.GetTempPath(), $"um-reviewer-race-{Guid.NewGuid():N}.db");
-        try
-        {
-            await using (UserManagementDbContext setup = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").Options))
-            {
-                await setup.Database.EnsureCreatedAsync();
-                UserManagementService service = CreateService(setup);
-                await service.ResolveAsync(new("default", OrganizationId, "Alpha", Oid, null, null), CancellationToken.None);
-                await service.CreateUnitOrganizationAsync(new(OtherOrganizationId, "default", "Beta"), CancellationToken.None);
-            }
-            BlockingFirstSave<RoleEntity> gate = new();
-            await using UserManagementDbContext firstDb = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").AddInterceptors(gate).Options);
-            await using UserManagementDbContext secondDb = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").Options);
-            UserIdentityRequest request = new("default", OtherOrganizationId, "Beta", Oid, null, null);
-
-            Task<UserIdentityResponse> first = CreateService(firstDb).ResolveAsync(request, CancellationToken.None);
-            await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
-            UserIdentityResponse winner;
-            try
-            {
-                winner = await CreateService(secondDb).ResolveAsync(request, CancellationToken.None);
-            }
-            finally
-            {
-                gate.Release();
-            }
-            UserIdentityResponse loser = await first.WaitAsync(TimeSpan.FromSeconds(3));
-
-            Assert.Equal(winner.UserId, loser.UserId);
-            Assert.Equal(winner.Roles.Single().RoleId, loser.Roles.Single().RoleId);
-            Assert.Single(await secondDb.UnitOrganizationMemberships.AsNoTracking()
-                .Where(value => value.UnitOrganizationId == OtherOrganizationId).ToListAsync());
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            if (File.Exists(path)) File.Delete(path);
-        }
-    }
-
-    [Fact]
-    public async Task ConcurrentUserCreation_ReloadsWinningUserAsync()
-    {
-        string path = Path.Combine(Path.GetTempPath(), $"um-user-race-{Guid.NewGuid():N}.db");
-        try
-        {
-            await using (UserManagementDbContext setup = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").Options))
-            {
-                await setup.Database.EnsureCreatedAsync();
-                UserManagementService service = CreateService(setup);
-                await service.CreateUnitOrganizationAsync(new(OrganizationId, "default", "Alpha"), CancellationToken.None);
-                await service.CreateRoleAsync(new("default", OrganizationId, "reviewer", "Reviewer"), CancellationToken.None);
-            }
-            BlockingFirstSave<UserEntity> gate = new();
-            await using UserManagementDbContext firstDb = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").AddInterceptors(gate).Options);
-            await using UserManagementDbContext secondDb = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").Options);
-            UserIdentityRequest request = new("default", OrganizationId, "Alpha", Oid, null, null);
-
-            Task<UserIdentityResponse> first = CreateService(firstDb).ResolveAsync(request, CancellationToken.None);
-            await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
-            UserIdentityResponse winner;
-            try
-            {
-                winner = await CreateService(secondDb).ResolveAsync(request, CancellationToken.None);
-            }
-            finally
-            {
-                gate.Release();
-            }
-            UserIdentityResponse loser = await first.WaitAsync(TimeSpan.FromSeconds(3));
-
-            Assert.Equal(winner.UserId, loser.UserId);
-            Assert.Equal(winner.Roles.Single().RoleId, loser.Roles.Single().RoleId);
-            Assert.Single(await secondDb.Users.AsNoTracking().ToListAsync());
-        }
-        finally
-        {
-            SqliteConnection.ClearAllPools();
-            if (File.Exists(path)) File.Delete(path);
-        }
     }
 
     [Fact]
@@ -431,7 +396,7 @@ public sealed class UserManagementStoreTests
         try
         {
             await using (UserManagementDbContext setup = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").Options))
+                .UseSqlite($"Data Source={path}").Options, TestActorProvider.Instance))
             {
                 await setup.Database.EnsureCreatedAsync();
                 await CreateService(setup).CreateUnitOrganizationAsync(new(OrganizationId, "default", "Alpha"),
@@ -439,9 +404,9 @@ public sealed class UserManagementStoreTests
             }
             BlockingFirstSave<RoleEntity> gate = new();
             await using UserManagementDbContext firstDb = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").AddInterceptors(gate).Options);
+                .UseSqlite($"Data Source={path}").AddInterceptors(gate).Options, TestActorProvider.Instance);
             await using UserManagementDbContext secondDb = new(new DbContextOptionsBuilder<UserManagementDbContext>()
-                .UseSqlite($"Data Source={path}").Options);
+                .UseSqlite($"Data Source={path}").Options, TestActorProvider.Instance);
             CreateRoleRequest request = new("default", OrganizationId, "admin", "Admin");
 
             Task<RoleInfo> first = CreateService(firstDb).CreateRoleAsync(request, CancellationToken.None);
@@ -487,9 +452,23 @@ public sealed class UserManagementStoreTests
     }
 
     private static UserManagementDbContext CreateDb(SqliteConnection connection) =>
-        new(new DbContextOptionsBuilder<UserManagementDbContext>().UseSqlite(connection).Options);
+        new(new DbContextOptionsBuilder<UserManagementDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
 
     private static UserManagementService CreateService(UserManagementDbContext db) =>
         new(new SqlUserStore(db, NullLogger<SqlUserStore>.Instance),
             Options.Create(new UserManagementOptions()), NullLogger<UserManagementService>.Instance);
+
+    private static async Task ProvisionAsync(UserManagementService service, UserManagementDbContext db,
+        string tenant, Guid organizationId, string organizationName, string oid,
+        string? email = null, string displayName = "User")
+    {
+        if (!await db.UnitOrganizations.AnyAsync(value => value.TenantId == tenant && value.Id == organizationId))
+            await service.CreateUnitOrganizationAsync(new(organizationId, tenant, organizationName), default);
+        if (!await db.Users.AnyAsync(value => value.TenantId == tenant && value.ObjectId == oid))
+            Assert.True(await service.CreateUserInOrganizationAsync(tenant, organizationId, oid,
+                displayName, email, default));
+        else if (!await db.UnitOrganizationMemberships.AnyAsync(value => value.TenantId == tenant &&
+                     value.UnitOrganizationId == organizationId && value.User.ObjectId == oid))
+            Assert.True(await service.AssignMembershipAsync(tenant, organizationId, oid, default));
+    }
 }

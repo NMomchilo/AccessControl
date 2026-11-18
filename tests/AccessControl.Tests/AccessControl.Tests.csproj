@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AccessControl.Application\AccessControl.Application.csproj" />
+    <ProjectReference Include="..\..\src\AdminManagement.Security\AdminManagement.Security.csproj" />
     <ProjectReference Include="..\..\src\AccessControl.Domain\AccessControl.Domain.csproj" />
     <ProjectReference Include="..\..\src\AccessControl.Contracts\AccessControl.Contracts.csproj" />
     <ProjectReference Include="..\..\src\AccessControl.Client\AccessControl.Client.csproj" />

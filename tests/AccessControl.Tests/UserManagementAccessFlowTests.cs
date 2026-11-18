@@ -13,10 +13,10 @@ namespace AccessControl.Tests;
 
 public sealed class UserManagementAccessFlowTests
 {
-    private static readonly Guid Reviewer = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid Reader = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly Guid Organization = Guid.Parse("33333333-3333-3333-3333-333333333333");
     [Fact]
-    public async Task InvokeAsync_ResolvedReviewer_ReachesControllerOnlyAfterPermitAsync()
+    public async Task InvokeAsync_ResolvedReader_ReachesControllerOnlyAfterPermitAsync()
     {
         bool controllerRan = false;
         CapturingDecisionClient decisionClient = new();
@@ -31,7 +31,7 @@ public sealed class UserManagementAccessFlowTests
             RoleIdentityAuthenticationType = UserManagementClaims.IdentityAuthenticationType
         }), NullLogger<AccessControlMiddleware>.Instance);
         UserManagementMiddleware userManagement = new(accessControl.InvokeAsync,
-            new ReviewerClient(), Options.Create(new UserManagementClientOptions()), NullLogger<UserManagementMiddleware>.Instance);
+            new ReaderClient(), Options.Create(new UserManagementClientOptions()), NullLogger<UserManagementMiddleware>.Instance);
         DefaultHttpContext context = new();
         context.Request.Method = "GET";
         context.User = new ClaimsPrincipal(new ClaimsIdentity(
@@ -47,17 +47,16 @@ public sealed class UserManagementAccessFlowTests
         await userManagement.InvokeAsync(context);
 
         Assert.True(controllerRan);
-        Assert.Equal([Reviewer], decisionClient.Request?.RoleIds);
         Assert.Equal(Organization, decisionClient.Request?.UnitOrganizationId);
         Assert.Equal("9155ff4d-2708-4770-b87e-e238645ec5df", decisionClient.Request?.SubjectId);
     }
 
-    private sealed class ReviewerClient : IUserManagementClient
+    private sealed class ReaderClient : IUserManagementClient
     {
         public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), request.TenantId,
-                request.UnitOrganizationId, request.UnitOrganizationName, true,
-                [new UserRoleInfo(Reviewer, "reviewer", "Reviewer")]));
+                request.UnitOrganizationId, "Alpha", true,
+                [new UserRoleInfo(Reader, "reader", "Reader")]));
     }
 
     private sealed class CapturingDecisionClient : IAccessControlDecisionClient
@@ -67,7 +66,7 @@ public sealed class UserManagementAccessFlowTests
         public Task<DecisionResponse> DecideAsync(DecisionRequest request, CancellationToken cancellationToken)
         {
             Request = request;
-            return Task.FromResult(new DecisionResponse(request.RoleIds.Contains(Reviewer), "Permit"));
+            return Task.FromResult(new DecisionResponse(true, "Permit"));
         }
     }
 }

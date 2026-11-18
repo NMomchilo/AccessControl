@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "User Management Service API",
-    "version": "5.2.0",
-    "description": "Tenant and unit-organization scoped user resolution, roles, and organization administration. The consuming API validates both the user JWT and trusted gateway UO assertion. Client-supplied headers are not trusted organization identity."
+    "version": "7.0.0",
+    "description": "Tenant and unit-organization scoped user resolution and administration. Administrative requests require a service key and a signed actor JWT with matching application tenant. Database writes require a validated actor ID; a missing actor causes the write to fail. The service does not provision the first SuperAdmin."
   },
   "servers": [
     {
@@ -89,8 +89,8 @@
         "tags": [
           "Client"
         ],
-        "summary": "Find or create a tenant-scoped user and return role IDs",
-        "description": "Resolve a validated oid in the tenant and gateway-authenticated UO. A missing UO, user, or Reviewer assignment is created idempotently.",
+        "summary": "Resolve an existing user and UO membership",
+        "description": "Read an existing user and active UO membership by validated oid, tenant, and gateway-authenticated UO ID. This request never creates a UO, user, membership, or role. Unknown UOs, users, or memberships return 404.",
         "operationId": "resolveUser",
         "security": [
           {
@@ -106,18 +106,15 @@
               },
               "example": {
                 "tenantId": "default",
-                "objectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
-                "email": "user@example.com",
-                "displayName": "Example User",
                 "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
-                "unitOrganizationName": "Customer Operations"
+                "objectId": "9155ff4d-2708-4770-b87e-e238645ec5df"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "User resolved or created",
+            "description": "Existing user and membership resolved",
             "content": {
               "application/json": {
                 "schema": {
@@ -127,13 +124,7 @@
                   "userId": "70f515ab-3c8d-42ab-92a3-3a06f1f9d938",
                   "tenantId": "default",
                   "isActive": true,
-                  "roles": [
-                    {
-                      "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
-                      "code": "reviewer",
-                      "displayName": "Reviewer"
-                    }
-                  ],
+                  "roles": [],
                   "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
                   "unitOrganizationName": "Customer Operations"
                 }
@@ -149,8 +140,8 @@
           "500": {
             "$ref": "#/components/responses/ServiceError"
           },
-          "409": {
-            "description": "UO ID is tombstoned or asserted name conflicts with an existing organization"
+          "404": {
+            "description": "UO, user, or membership does not exist or is deleted"
           }
         }
       }
@@ -161,7 +152,7 @@
           "Client"
         ],
         "summary": "Get the shared user, UO, and role revision",
-        "description": "Consuming instances poll this value to invalidate cached roles and active status after administrator changes.",
+        "description": "Consuming APIs and Access Control poll this revision to invalidate bounded user and role caches after administration changes.",
         "operationId": "getUserRoleRevision",
         "security": [
           {
@@ -193,24 +184,73 @@
     },
     "/v1/users/by-email": {
       "get": {
-        "tags": ["Administration"],
+        "tags": [
+          "Administration"
+        ],
         "summary": "Find users by email",
         "description": "Returns a page of matching users because email is not a unique identity. Matching ignores letter case. Roles are grouped by active unit-organization membership.",
         "operationId": "findUsersByEmail",
-        "security": [{ "AdministratorApiKey": [] }],
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/TenantId" },
-          { "name": "email", "in": "query", "required": true, "schema": { "type": "string", "maxLength": 320 } },
-          { "name": "unitOrganizationId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
-          { "$ref": "#/components/parameters/Page" },
-          { "$ref": "#/components/parameters/PageSize" }
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "email",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 320
+            }
+          },
+          {
+            "name": "unitOrganizationId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
         ],
         "responses": {
-          "200": { "description": "Matching users (empty items when none)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PagedUsers" } } } },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "description": "Unit organization not found when filtering by organization" },
-          "500": { "$ref": "#/components/responses/ServiceError" }
+          "200": {
+            "description": "Matching users (empty items when none)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagedUsers"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Unit organization not found when filtering by organization"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
+          }
         }
       }
     },
@@ -223,7 +263,8 @@
         "operationId": "getManagedUser",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -259,9 +300,203 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         },
         "description": "The tenantId query parameter scopes the oid lookup."
+      },
+      "post": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Create a user and first UO membership with optional existing role IDs",
+        "operationId": "createManagedUser",
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unitOrganizationId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Actor lacks the required management duty."
+          },
+          "409": {
+            "description": "User already exists or the selected UO does not exist."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserRequest"
+              },
+              "example": {
+                "displayName": "Example User",
+                "email": "user@example.com",
+                "roleIds": []
+              }
+            }
+          }
+        },
+        "description": "The UO and every supplied role ID must already exist and be active in the same tenant and UO. Omit roleIds or send an empty array to create the user without roles. Invalid role IDs do not create a user."
+      },
+      "put": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Update a member profile (UO Admin or SuperAdmin)",
+        "operationId": "updateManagedUser",
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unitOrganizationId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Actor lacks the required management duty."
+          },
+          "404": {
+            "description": "Target not found."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserProfileRequest"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Soft delete a tenant user (SuperAdmin)",
+        "operationId": "deleteManagedUser",
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Actor lacks the required management duty."
+          },
+          "404": {
+            "description": "Target not found."
+          }
+        }
       }
     },
     "/v1/users/{objectId}/roles": {
@@ -274,7 +509,8 @@
         "operationId": "replaceManagedUserRoles",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -318,6 +554,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         }
       }
@@ -332,7 +571,8 @@
         "operationId": "setManagedUserActiveStatus",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -371,6 +611,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         }
       }
@@ -384,7 +627,8 @@
         "operationId": "listRoles",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -415,8 +659,8 @@
                       "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
                       "tenantId": "default",
                       "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
-                      "code": "reviewer",
-                      "displayName": "Reviewer",
+                      "code": "reader",
+                      "displayName": "Reader",
                       "isActive": true
                     }
                   ],
@@ -438,6 +682,9 @@
           },
           "404": {
             "description": "Filtered UO not found or tombstoned"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         },
         "description": "Omit unitOrganizationId for all active UOs, or supply it to filter. Stable order by UO ID, code, and role ID."
@@ -451,7 +698,8 @@
         "description": "Code is unique within the tenant and UO. Role IDs are stable for assignments and Access Control grants.",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "requestBody": {
@@ -489,6 +737,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         }
       }
@@ -502,7 +753,8 @@
         "operationId": "listUnitOrganizations",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -532,6 +784,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         }
       },
@@ -543,7 +798,8 @@
         "operationId": "createUnitOrganization",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "requestBody": {
@@ -578,6 +834,9 @@
           },
           "409": {
             "description": "Organization ID was tombstoned and cannot be reused"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         }
       }
@@ -591,7 +850,8 @@
         "operationId": "getUnitOrganization",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -624,6 +884,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         }
       },
@@ -635,7 +898,8 @@
         "operationId": "updateUnitOrganization",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -678,6 +942,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         }
       },
@@ -689,7 +956,8 @@
         "operationId": "deleteUnitOrganization",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -715,6 +983,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         },
         "description": "Retains users and roles for audit but blocks resolution and role assignment for this UO ID. GET/list omit tombstones. REST create with the same ID returns 409. Already cached resolutions can remain effective for up to five seconds. Clean up Access Control grants and policies separately."
@@ -729,7 +1000,8 @@
         "operationId": "listUsers",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "description": "Includes inactive users and roles grouped by active unit-organization membership. Stable order by objectId and userId. Empty items for a page beyond the end.",
@@ -760,7 +1032,20 @@
                       "displayName": "Example User",
                       "email": "user@example.com",
                       "isActive": true,
-                      "memberships": [{ "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "unitOrganizationName": "Customer Operations", "roles": [{ "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059", "code": "reviewer", "displayName": "Reviewer", "isActive": true }] }]
+                      "memberships": [
+                        {
+                          "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                          "unitOrganizationName": "Customer Operations",
+                          "roles": [
+                            {
+                              "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
+                              "code": "reader",
+                              "displayName": "Reader",
+                              "isActive": true
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ],
                   "totalCount": 1,
@@ -778,6 +1063,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         }
       }
@@ -791,7 +1079,8 @@
         "operationId": "listUnitOrganizationUsers",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -824,7 +1113,20 @@
                       "displayName": "Example User",
                       "email": "user@example.com",
                       "isActive": true,
-                      "memberships": [{ "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "unitOrganizationName": "Customer Operations", "roles": [{ "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059", "code": "reviewer", "displayName": "Reviewer", "isActive": true }] }]
+                      "memberships": [
+                        {
+                          "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                          "unitOrganizationName": "Customer Operations",
+                          "roles": [
+                            {
+                              "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
+                              "code": "reader",
+                              "displayName": "Reader",
+                              "isActive": true
+                            }
+                          ]
+                        }
+                      ]
                     }
                   ],
                   "totalCount": 1,
@@ -845,6 +1147,9 @@
           },
           "404": {
             "description": "UO not found or tombstoned"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         }
       }
@@ -858,7 +1163,8 @@
         "operationId": "listUnitOrganizationRoles",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -889,8 +1195,8 @@
                       "roleId": "b78650b4-c248-cab1-3d80-9a7c0dad7059",
                       "tenantId": "default",
                       "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
-                      "code": "reviewer",
-                      "displayName": "Reviewer",
+                      "code": "reader",
+                      "displayName": "Reader",
                       "isActive": true
                     }
                   ],
@@ -912,27 +1218,202 @@
           },
           "404": {
             "description": "UO not found or tombstoned"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
           }
         }
       }
     },
     "/v1/roles/{roleId}": {
       "get": {
-        "tags": ["Administration"],
+        "tags": [
+          "Administration"
+        ],
         "summary": "Get a role in one tenant and unit organization",
         "operationId": "getRoleById",
-        "security": [{ "AdministratorApiKey": [] }],
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
         "parameters": [
-          { "name": "roleId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
-          { "$ref": "#/components/parameters/TenantId" },
-          { "$ref": "#/components/parameters/UnitOrganizationId" }
+          {
+            "name": "roleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/UnitOrganizationId"
+          }
         ],
         "responses": {
-          "200": { "description": "Role", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RoleInfo" } } } },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "description": "Role not found in the selected scope" },
-          "500": { "$ref": "#/components/responses/ServiceError" }
+          "200": {
+            "description": "Role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Role not found in the selected scope"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Update a business role display name",
+        "operationId": "updateManagedRole",
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "roleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unitOrganizationId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Actor lacks the required management duty."
+          },
+          "404": {
+            "description": "Target not found."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRoleRequest"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Soft delete a business role",
+        "operationId": "deleteManagedRole",
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "roleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unitOrganizationId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Actor lacks the required management duty."
+          },
+          "404": {
+            "description": "Target not found."
+          }
         }
       }
     },
@@ -945,7 +1426,8 @@
         "operationId": "setRoleActive",
         "security": [
           {
-            "AdministratorApiKey": []
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -993,6 +1475,316 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Actor has no management duty for the requested tenant or organization."
+          }
+        }
+      }
+    },
+    "/v1/admin/access": {
+      "get": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Read current actor management duties",
+        "operationId": "getAdminAccess",
+        "security": [
+          {
+            "AdminLookupApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unitOrganizationId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAccessInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Actor lacks the required management duty."
+          },
+          "404": {
+            "description": "Target not found."
+          }
+        }
+      }
+    },
+    "/v1/users/{objectId}/memberships/{unitOrganizationId}": {
+      "put": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Assign or restore a UO membership without roles",
+        "operationId": "assignUserMembership",
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "unitOrganizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Actor lacks the required management duty."
+          },
+          "404": {
+            "description": "Target not found."
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Soft delete one UO membership",
+        "operationId": "revokeUserMembership",
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "unitOrganizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Actor lacks the required management duty."
+          },
+          "404": {
+            "description": "Target not found."
+          }
+        }
+      }
+    },
+    "/v1/users/{objectId}/duties/super-admin": {
+      "put": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Grant or revoke tenant SuperAdmin duty (SuperAdmin)",
+        "operationId": "setSuperAdminDuty",
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Actor lacks the required management duty."
+          },
+          "404": {
+            "description": "Target not found."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetActiveRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/users/{objectId}/duties/unit-admin/{unitOrganizationId}": {
+      "put": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Grant or revoke UO Admin duty (SuperAdmin)",
+        "operationId": "setUnitAdminDuty",
+        "security": [
+          {
+            "AdministratorApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "unitOrganizationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Actor lacks the required management duty."
+          },
+          "404": {
+            "description": "Target not found."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetActiveRequest"
+              }
+            }
           }
         }
       }
@@ -1010,7 +1802,19 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-User-Management-Key",
-        "description": "Credential configured under UserManagementKeys:Administrators. Use for user read and writes only."
+        "description": "Administrator service credential used together with a validated Entra token."
+      },
+      "AdminLookupApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-User-Management-Key",
+        "description": "Dedicated Access Control credential for current administrator-duty lookup."
+      },
+      "EntraAdminBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Validated Entra administrator access token; oid identifies the human actor and current duty is read from User Management."
       }
     },
     "parameters": {
@@ -1111,27 +1915,10 @@
         "type": "object",
         "required": [
           "tenantId",
-          "objectId",
           "unitOrganizationId",
-          "unitOrganizationName"
+          "objectId"
         ],
         "properties": {
-          "objectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Validated Entra JWT oid from the consuming service. The User Management service does not validate that JWT."
-          },
-          "email": {
-            "type": "string",
-            "nullable": true,
-            "maxLength": 320,
-            "description": "Optional profile value; never used to match a user."
-          },
-          "displayName": {
-            "type": "string",
-            "nullable": true,
-            "maxLength": 200
-          },
           "tenantId": {
             "type": "string",
             "maxLength": 128,
@@ -1141,14 +1928,13 @@
           "unitOrganizationId": {
             "type": "string",
             "format": "uuid",
-            "description": "Stable gateway-asserted organization ID within the application tenant.",
+            "description": "ID from the validated gateway identity; the UO must already exist.",
             "example": "33333333-3333-3333-3333-333333333333"
           },
-          "unitOrganizationName": {
+          "objectId": {
             "type": "string",
-            "maxLength": 200,
-            "description": "Gateway-asserted display name; resolution does not rename an existing organization.",
-            "example": "Customer Operations"
+            "format": "uuid",
+            "description": "Validated Entra JWT oid from the consuming service. The User Management service does not validate that JWT."
           }
         }
       },
@@ -1176,7 +1962,7 @@
             "items": {
               "$ref": "#/components/schemas/UserRoleInfo"
             },
-            "description": "Role IDs and display data. New users receive reviewer."
+            "description": "Existing role IDs explicitly assigned by an administrator. Empty for a new user or membership."
           },
           "tenantId": {
             "type": "string",
@@ -1435,27 +2221,57 @@
           },
           "memberships": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/UserMembershipSummary" }
+            "items": {
+              "$ref": "#/components/schemas/UserMembershipSummary"
+            }
           }
         }
       },
       "UserMembershipSummary": {
         "type": "object",
-        "required": ["unitOrganizationId", "unitOrganizationName", "roles"],
+        "required": [
+          "unitOrganizationId",
+          "unitOrganizationName",
+          "roles"
+        ],
         "properties": {
-          "unitOrganizationId": { "type": "string", "format": "uuid" },
-          "unitOrganizationName": { "type": "string" },
-          "roles": { "type": "array", "items": { "$ref": "#/components/schemas/UserRoleAssignmentInfo" } }
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "unitOrganizationName": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserRoleAssignmentInfo"
+            }
+          }
         }
       },
       "UserRoleAssignmentInfo": {
         "type": "object",
-        "required": ["roleId", "code", "displayName", "isActive"],
+        "required": [
+          "roleId",
+          "code",
+          "displayName",
+          "isActive"
+        ],
         "properties": {
-          "roleId": { "type": "string", "format": "uuid" },
-          "code": { "type": "string" },
-          "displayName": { "type": "string" },
-          "isActive": { "type": "boolean" }
+          "roleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          }
         }
       },
       "PagedUsers": {
@@ -1521,6 +2337,88 @@
             "format": "int32",
             "minimum": 1,
             "maximum": 100
+          }
+        }
+      },
+      "AdminAccessInfo": {
+        "type": "object",
+        "required": [
+          "isActive",
+          "isSuperAdmin",
+          "managedUnitOrganizationIds",
+          "canManage"
+        ],
+        "properties": {
+          "isActive": {
+            "type": "boolean"
+          },
+          "isSuperAdmin": {
+            "type": "boolean"
+          },
+          "managedUnitOrganizationIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "canManage": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UserProfileRequest": {
+        "type": "object",
+        "required": [
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "email": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 320
+          }
+        }
+      },
+      "UpdateRoleRequest": {
+        "type": "object",
+        "required": [
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "maxLength": 200
+          }
+        }
+      },
+      "CreateUserRequest": {
+        "type": "object",
+        "required": [
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "email": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 320
+          },
+          "roleIds": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Optional IDs of existing, active roles in this tenant and UO. Empty or omitted means no roles."
           }
         }
       }

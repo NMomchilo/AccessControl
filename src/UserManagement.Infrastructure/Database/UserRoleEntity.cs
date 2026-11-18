@@ -1,6 +1,8 @@
+using Common.Persistence;
+
 namespace UserManagement.Infrastructure.Database;
 
-public sealed class UserRoleEntity
+public sealed class UserRoleEntity : GeneralEntityBase
 {
     public Guid UserId { get; set; }
     public string TenantId { get; set; } = string.Empty;

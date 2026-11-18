@@ -12,10 +12,13 @@ public sealed class UserManagementExceptionHandler(ILogger<UserManagementExcepti
         int status = exception switch
         {
             ArgumentException => StatusCodes.Status400BadRequest,
+            UnauthorizedAccessException => StatusCodes.Status403Forbidden,
+            AdminDutyConflictException => StatusCodes.Status409Conflict,
             UnitOrganizationConflictException => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status500InternalServerError
         };
-        if (status == StatusCodes.Status400BadRequest || status == StatusCodes.Status409Conflict)
+        if (status == StatusCodes.Status400BadRequest || status == StatusCodes.Status409Conflict ||
+            status == StatusCodes.Status403Forbidden)
         {
             logger.LogWarning("Invalid User Management request; trace {TraceId}", context.TraceIdentifier);
         }
@@ -31,7 +34,8 @@ public sealed class UserManagementExceptionHandler(ILogger<UserManagementExcepti
             Title = status switch
             {
                 StatusCodes.Status400BadRequest => "Invalid request",
-                StatusCodes.Status409Conflict => "Organization conflict",
+                StatusCodes.Status403Forbidden => "Forbidden",
+                StatusCodes.Status409Conflict => "Conflict",
                 _ => "Service error"
             }
         }, cancellationToken);

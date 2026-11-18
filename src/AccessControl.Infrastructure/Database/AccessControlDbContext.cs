@@ -1,9 +1,39 @@
+using Common.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace AccessControl.Infrastructure.Database;
 
-public sealed class AccessControlDbContext(DbContextOptions<AccessControlDbContext> options) : DbContext(options)
+public sealed class AccessControlDbContext(DbContextOptions<AccessControlDbContext> options,
+    ICurrentActorProvider? currentActor = null) : DbContext(options)
 {
+    internal string RequiredActorId => CurrentActor.Require(currentActor);
+
+    public override int SaveChanges()
+    {
+        StampChanges();
+        return base.SaveChanges();
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        StampChanges();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void StampChanges()
+    {
+        DateTime now = DateTime.UtcNow;
+        string actor = RequiredActorId;
+        foreach (var entry in ChangeTracker.Entries<GeneralEntityBase>()
+                     .Where(value => value.State is EntityState.Added or EntityState.Modified))
+        {
+            if (entry.State == EntityState.Added && entry.Entity.Id == Guid.Empty)
+                entry.Entity.Id = Guid.NewGuid();
+            entry.Entity.LastUpdateUser = actor;
+            entry.Entity.LastUpdateTime = now;
+        }
+    }
+
     public DbSet<RoleEntitlementEntity> RoleEntitlements => Set<RoleEntitlementEntity>();
     public DbSet<EntitlementEntity> Entitlements => Set<EntitlementEntity>();
     public DbSet<EndpointPolicyEntity> EndpointPolicies => Set<EndpointPolicyEntity>();
@@ -70,7 +100,19 @@ public sealed class AccessControlDbContext(DbContextOptions<AccessControlDbConte
         {
             entity.ToTable("AuthorizationRevisions");
             entity.HasKey(x => x.Id);
-            entity.HasData(new AuthorizationRevisionEntity { Id = 1, Version = 0 });
+            entity.HasData(new AuthorizationRevisionEntity
+            {
+                Id = AuthorizationRevisionEntity.SingletonId, Version = 0,
+                LastUpdateUser = "Migration", LastUpdateTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            });
         });
+
+        if (Database.IsSqlServer())
+        {
+            foreach (var entityType in modelBuilder.Model.GetEntityTypes()
+                         .Where(value => typeof(GeneralEntityBase).IsAssignableFrom(value.ClrType)))
+                modelBuilder.Entity(entityType.ClrType).Property<Guid>(nameof(GeneralEntityBase.Id))
+                    .HasDefaultValueSql("NEWSEQUENTIALID()");
+        }
     }
 }

@@ -4,8 +4,18 @@ namespace UserManagement.Application;
 
 public interface IUserStore
 {
-    Task<ManagedUser> ResolveAsync(string tenantId, Guid unitOrganizationId, string unitOrganizationName,
-        string objectId, string? email, string? displayName, CancellationToken cancellationToken);
+    Task<AdminAccess> GetAdminAccessAsync(string tenantId, string objectId, CancellationToken cancellationToken);
+    Task<bool> CreateUserAsync(string tenantId, string objectId, string displayName, string? email, CancellationToken cancellationToken);
+    Task<bool> CreateUserInOrganizationAsync(string tenantId, Guid unitOrganizationId, string objectId,
+        string displayName, string? email, CancellationToken cancellationToken, IReadOnlyList<Guid>? roleIds = null);
+    Task<bool> UpdateUserAsync(string tenantId, string objectId, string displayName, string? email, CancellationToken cancellationToken);
+    Task<bool> DeleteUserAsync(string tenantId, string objectId, CancellationToken cancellationToken);
+    Task<bool> AssignMembershipAsync(string tenantId, Guid unitOrganizationId, string objectId, CancellationToken cancellationToken);
+    Task<bool> RevokeMembershipAsync(string tenantId, Guid unitOrganizationId, string objectId, CancellationToken cancellationToken);
+    Task<bool> SetSuperAdminAsync(string tenantId, string objectId, bool granted, CancellationToken cancellationToken);
+    Task<bool> SetUnitAdminAsync(string tenantId, Guid unitOrganizationId, string objectId, bool granted, CancellationToken cancellationToken);
+    Task<ManagedRole?> UpdateRoleAsync(string tenantId, Guid unitOrganizationId, Guid roleId, string displayName, CancellationToken cancellationToken);
+    Task<bool> DeleteRoleAsync(string tenantId, Guid unitOrganizationId, Guid roleId, CancellationToken cancellationToken);
     Task<ManagedUser?> GetAsync(string tenantId, Guid unitOrganizationId, string objectId, CancellationToken cancellationToken);
     Task<PageSlice<ManagedUserSummary>> GetUsersAsync(string tenantId, Guid? unitOrganizationId,
         int offset, int pageSize, string? email, CancellationToken cancellationToken);

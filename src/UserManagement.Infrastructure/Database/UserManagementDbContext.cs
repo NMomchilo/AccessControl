@@ -1,9 +1,39 @@
+using Common.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace UserManagement.Infrastructure.Database;
 
-public sealed class UserManagementDbContext(DbContextOptions<UserManagementDbContext> options) : DbContext(options)
+public sealed class UserManagementDbContext(DbContextOptions<UserManagementDbContext> options,
+    ICurrentActorProvider? currentActor = null) : DbContext(options)
 {
+    internal string RequiredActorId => CurrentActor.Require(currentActor);
+
+    public override int SaveChanges()
+    {
+        StampChanges();
+        return base.SaveChanges();
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        StampChanges();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void StampChanges()
+    {
+        DateTime now = DateTime.UtcNow;
+        string actor = RequiredActorId;
+        foreach (var entry in ChangeTracker.Entries<GeneralEntityBase>()
+                     .Where(value => value.State is EntityState.Added or EntityState.Modified))
+        {
+            if (entry.State == EntityState.Added && entry.Entity.Id == Guid.Empty)
+                entry.Entity.Id = Guid.NewGuid();
+            entry.Entity.LastUpdateUser = actor;
+            entry.Entity.LastUpdateTime = now;
+        }
+    }
+
     public DbSet<UserEntity> Users => Set<UserEntity>();
     public DbSet<UserRoleEntity> UserRoles => Set<UserRoleEntity>();
     public DbSet<RoleEntity> Roles => Set<RoleEntity>();
@@ -46,7 +76,8 @@ public sealed class UserManagementDbContext(DbContextOptions<UserManagementDbCon
         modelBuilder.Entity<UnitOrganizationMembershipEntity>(entity =>
         {
             entity.ToTable("UnitOrganizationMemberships");
-            entity.HasKey(membership => new { membership.UserId, membership.UnitOrganizationId });
+            entity.HasKey(membership => membership.Id);
+            entity.HasIndex(membership => new { membership.UserId, membership.UnitOrganizationId }).IsUnique();
             entity.HasAlternateKey(membership => new
                 { membership.TenantId, membership.UserId, membership.UnitOrganizationId });
             entity.Property(membership => membership.TenantId).HasMaxLength(128).IsRequired();
@@ -60,7 +91,8 @@ public sealed class UserManagementDbContext(DbContextOptions<UserManagementDbCon
         modelBuilder.Entity<UserRoleEntity>(entity =>
         {
             entity.ToTable("UserRoles");
-            entity.HasKey(role => new { role.UserId, role.UnitOrganizationId, role.RoleId });
+            entity.HasKey(role => role.Id);
+            entity.HasIndex(role => new { role.UserId, role.UnitOrganizationId, role.RoleId }).IsUnique();
             entity.Property(role => role.TenantId).HasMaxLength(128).IsRequired();
             entity.HasOne(role => role.User).WithMany(user => user.Roles)
                 .HasForeignKey(role => new { role.TenantId, role.UserId })
@@ -97,7 +129,19 @@ public sealed class UserManagementDbContext(DbContextOptions<UserManagementDbCon
         {
             entity.ToTable("UserManagementRevisions");
             entity.HasKey(value => value.Id);
-            entity.HasData(new UserManagementRevisionEntity { Id = 1, Version = 0 });
+            entity.HasData(new UserManagementRevisionEntity
+            {
+                Id = UserManagementRevisionEntity.SingletonId, Version = 0,
+                LastUpdateUser = "Migration", LastUpdateTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            });
         });
+
+        if (Database.IsSqlServer())
+        {
+            foreach (var entityType in modelBuilder.Model.GetEntityTypes()
+                         .Where(value => typeof(GeneralEntityBase).IsAssignableFrom(value.ClrType)))
+                modelBuilder.Entity(entityType.ClrType).Property<Guid>(nameof(GeneralEntityBase.Id))
+                    .HasDefaultValueSql("NEWSEQUENTIALID()");
+        }
     }
 }

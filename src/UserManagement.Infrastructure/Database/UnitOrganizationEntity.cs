@@ -1,8 +1,9 @@
+using Common.Persistence;
+
 namespace UserManagement.Infrastructure.Database;
 
-public sealed class UnitOrganizationEntity
+public sealed class UnitOrganizationEntity : GeneralEntityBase
 {
-    public Guid Id { get; set; }
     public string TenantId { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public bool IsDeleted { get; set; }

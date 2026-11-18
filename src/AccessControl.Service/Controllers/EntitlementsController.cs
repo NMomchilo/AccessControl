@@ -6,13 +6,15 @@ namespace AccessControl.Service.Controllers;
 
 [ApiController]
 [Route("v1")]
-public sealed class EntitlementsController(EntitlementCatalogService catalog, ILogger<EntitlementsController> logger) : ControllerBase
+public sealed class EntitlementsController(EntitlementCatalogService catalog, IAdminScopeAuthorizer scopeAuthorizer,
+    ILogger<EntitlementsController> logger) : AdminControllerBase(scopeAuthorizer)
 {
     [HttpPost("entitlements")]
     [ProducesResponseType(typeof(EntitlementInfo), StatusCodes.Status201Created)]
     public async Task<IActionResult> CreateAsync([FromBody] CreateEntitlementRequest request,
         CancellationToken cancellationToken)
     {
+        if (request is null || !await CanManageAsync(request.TenantId, request.UnitOrganizationId, cancellationToken)) return Forbid();
         EntitlementInfo created = await catalog.CreateAsync(request, cancellationToken);
         logger.LogInformation("Administrator created entitlement {EntitlementId}; trace {TraceId}",
             created.Id, HttpContext.TraceIdentifier);
@@ -26,6 +28,7 @@ public sealed class EntitlementsController(EntitlementCatalogService catalog, IL
         [FromQuery] Guid unitOrganizationId, [FromBody] SetEntitlementActiveRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManageAsync(tenantId, unitOrganizationId, cancellationToken)) return Forbid();
         bool found = await catalog.SetActiveAsync(tenantId, unitOrganizationId, id, request.IsActive, cancellationToken);
         logger.LogInformation("Administrator set entitlement {EntitlementId} active status to {IsActive}; found {Found}; trace {TraceId}",
             id, request.IsActive, found, HttpContext.TraceIdentifier);
@@ -39,6 +42,7 @@ public sealed class EntitlementsController(EntitlementCatalogService catalog, IL
         [FromQuery] Guid unitOrganizationId, [FromBody] UpdateEntitlementDisplayNameRequest request,
         CancellationToken cancellationToken)
     {
+        if (!await CanManageAsync(tenantId, unitOrganizationId, cancellationToken)) return Forbid();
         EntitlementInfo? updated = await catalog.UpdateDisplayNameAsync(tenantId, unitOrganizationId, id,
             request.DisplayName, cancellationToken);
         logger.LogInformation("Administrator updated entitlement {EntitlementId} display name; found {Found}; trace {TraceId}",
@@ -48,15 +52,21 @@ public sealed class EntitlementsController(EntitlementCatalogService catalog, IL
 
     [HttpGet("entitlements")]
     [ProducesResponseType(typeof(EntitlementPageResponse), StatusCodes.Status200OK)]
-    public Task<EntitlementPageResponse> ListAsync([FromQuery] string tenantId, [FromQuery] int? page,
-        [FromQuery] int? pageSize, CancellationToken cancellationToken) =>
-        catalog.ListAsync(tenantId, null, page ?? 1, pageSize ?? 100, cancellationToken);
+    public async Task<IActionResult> ListAsync([FromQuery] string tenantId, [FromQuery] int? page,
+        [FromQuery] int? pageSize, CancellationToken cancellationToken)
+    {
+        if (!await CanManageAsync(tenantId, null, cancellationToken)) return Forbid();
+        return Ok(await catalog.ListAsync(tenantId, null, page ?? 1, pageSize ?? 100, cancellationToken));
+    }
 
     [HttpGet("unit-organizations/{id:guid}/entitlements")]
     [ProducesResponseType(typeof(EntitlementPageResponse), StatusCodes.Status200OK)]
-    public Task<EntitlementPageResponse> ListForOrganizationAsync(Guid id, [FromQuery] string tenantId,
-        [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken cancellationToken) =>
-        catalog.ListAsync(tenantId, id, page ?? 1, pageSize ?? 100, cancellationToken);
+    public async Task<IActionResult> ListForOrganizationAsync(Guid id, [FromQuery] string tenantId,
+        [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken cancellationToken)
+    {
+        if (!await CanManageAsync(tenantId, id, cancellationToken)) return Forbid();
+        return Ok(await catalog.ListAsync(tenantId, id, page ?? 1, pageSize ?? 100, cancellationToken));
+    }
 
     [HttpGet("entitlements/{id:guid}")]
     [ProducesResponseType(typeof(EntitlementInfo), StatusCodes.Status200OK)]
@@ -64,6 +74,7 @@ public sealed class EntitlementsController(EntitlementCatalogService catalog, IL
     public async Task<IActionResult> GetOneAsync(Guid id, [FromQuery] string tenantId,
         [FromQuery] Guid unitOrganizationId, CancellationToken cancellationToken)
     {
+        if (!await CanManageAsync(tenantId, unitOrganizationId, cancellationToken)) return Forbid();
         EntitlementInfo? entitlement = await catalog.GetAsync(tenantId, unitOrganizationId, id,
             cancellationToken);
         return entitlement is null ? NotFound() : Ok(entitlement);

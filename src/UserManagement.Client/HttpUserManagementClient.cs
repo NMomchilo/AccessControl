@@ -27,6 +27,10 @@ public sealed class HttpUserManagementClient(IHttpClientFactory clientFactory,
         {
             throw new UnitOrganizationAccessException();
         }
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new UserNotProvisionedException();
+        }
         response.EnsureSuccessStatusCode();
         UserIdentityResponse resolved = await response.Content.ReadFromJsonAsync<UserIdentityResponse>(cancellationToken)
             ?? throw new InvalidOperationException("User Management returned an empty response.");

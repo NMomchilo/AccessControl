@@ -15,9 +15,10 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 name: "AuthorizationRevisions",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "int", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    Version = table.Column<long>(type: "bigint", nullable: false)
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
+                    Version = table.Column<long>(type: "bigint", nullable: false),
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -28,14 +29,16 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 name: "EndpointPolicies",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Module = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     HttpMethod = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: false),
                     RouteTemplate = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: false),
-                    IsPublic = table.Column<bool>(type: "bit", nullable: false)
+                    IsPublic = table.Column<bool>(type: "bit", nullable: false),
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false),
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -47,12 +50,14 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 name: "Entitlements",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Code = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     DisplayName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    IsActive = table.Column<bool>(type: "bit", nullable: false)
+                    IsActive = table.Column<bool>(type: "bit", nullable: false),
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -64,12 +69,13 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 name: "EndpointPolicyEntitlements",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    EndpointPolicyId = table.Column<long>(type: "bigint", nullable: false),
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
+                    EndpointPolicyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    EntitlementId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
+                    EntitlementId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -92,12 +98,13 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 name: "RoleEntitlements",
                 columns: table => new
                 {
-                    Id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     RoleId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    EntitlementId = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
+                    EntitlementId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -112,8 +119,8 @@ namespace AccessControl.Infrastructure.Database.Migrations
 
             migrationBuilder.InsertData(
                 table: "AuthorizationRevisions",
-                columns: new[] { "Id", "Version" },
-                values: new object[] { 1, 0L });
+                columns: new[] { "Id", "LastUpdateTime", "LastUpdateUser", "Version" },
+                values: new object[] { new Guid("a9acd89c-9a57-48c3-9dd1-222222222221"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), "Migration", 0L });
 
             migrationBuilder.CreateIndex(
                 name: "IX_EndpointPolicies_TenantId_UnitOrganizationId_Module_HttpMethod_RouteTemplate",

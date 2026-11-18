@@ -1,5 +1,7 @@
 # Unit organization benchmark — 2026-11-10
 
+Historical result: the role setup described below predates the current explicit provisioning flow. Current request-time resolution performs no database writes.
+
 These are short local smoke benchmarks of the new UO-scoped request contracts. They verify the two individual service harnesses and the complete JWT → gateway identity → User Management NuGet → Access Control NuGet → controller path. They are **not** a production capacity estimate or a controlled before/after comparison.
 
 The individual service runs used .NET 10 Release on one Windows host, 200 measured requests at concurrency 8, one tenant, one UO ID, one route, and one role. The Access Control harness used ASP.NET Core's in-process test server; its SQLite case exercised the EF store and authorization cache. The User Management harness used shared in-memory SQLite and a five-second bounded client cache. Those two runs did not include TLS, gateway validation, Entra JWT validation, Docker SQL Server, or network latency.

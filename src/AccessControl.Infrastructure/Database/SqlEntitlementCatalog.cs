@@ -1,3 +1,4 @@
+using Common.Persistence;
 using AccessControl.Application;
 using AccessControl.Contracts;
 using AccessControl.Infrastructure.Caching;
@@ -23,7 +24,8 @@ public sealed class SqlEntitlementCatalog(AccessControlDbContext db, Authorizati
             Id = Guid.NewGuid(), TenantId = tenantId, UnitOrganizationId = unitOrganizationId,
             Code = code, DisplayName = displayName, IsActive = true
         };
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         db.Entitlements.Add(entity);
         try
         {
@@ -42,7 +44,7 @@ public sealed class SqlEntitlementCatalog(AccessControlDbContext db, Authorizati
             throw;
         }
         await IncrementRevisionAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         cache?.InvalidateAll("entitlement created");
         _logger.LogInformation("Created entitlement {EntitlementId} in tenant {TenantId}, organization {UnitOrganizationId}",
             entity.Id, tenantId, unitOrganizationId);
@@ -56,11 +58,12 @@ public sealed class SqlEntitlementCatalog(AccessControlDbContext db, Authorizati
             value.TenantId == tenantId && value.UnitOrganizationId == unitOrganizationId, cancellationToken);
         if (entity is null) return false;
         if (entity.IsActive == isActive) return true;
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         entity.IsActive = isActive;
         await db.SaveChangesAsync(cancellationToken);
         await IncrementRevisionAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         cache?.InvalidateAll("entitlement active status changed");
         _logger.LogInformation("Entitlement {EntitlementId} active status set to {IsActive}", entitlementId, isActive);
         return true;
@@ -69,9 +72,13 @@ public sealed class SqlEntitlementCatalog(AccessControlDbContext db, Authorizati
     public async Task<EntitlementInfo?> UpdateDisplayNameAsync(string tenantId, Guid unitOrganizationId,
         Guid entitlementId, string displayName, CancellationToken cancellationToken)
     {
+        DateTime now = DateTime.UtcNow;
+        string actor = db.RequiredActorId;
         int changed = await db.Entitlements.Where(value => value.Id == entitlementId &&
                 value.TenantId == tenantId && value.UnitOrganizationId == unitOrganizationId)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(value => value.DisplayName, displayName),
+            .ExecuteUpdateAsync(setters => setters.SetProperty(value => value.DisplayName, displayName)
+                .SetProperty(value => value.LastUpdateUser, actor)
+                .SetProperty(value => value.LastUpdateTime, now),
                 cancellationToken);
         if (changed == 0) return null;
         EntitlementEntity updated = await db.Entitlements.AsNoTracking().SingleAsync(value =>
@@ -106,9 +113,12 @@ public sealed class SqlEntitlementCatalog(AccessControlDbContext db, Authorizati
 
     private async Task IncrementRevisionAsync(CancellationToken cancellationToken)
     {
-        int changed = await db.AuthorizationRevisions.Where(value => value.Id == 1)
+        DateTime now = DateTime.UtcNow;
+        string actor = db.RequiredActorId;
+        int changed = await db.AuthorizationRevisions.Where(value => value.Id == AuthorizationRevisionEntity.SingletonId)
             .ExecuteUpdateAsync(setters => setters.SetProperty(value => value.Version,
-                value => value.Version + 1), cancellationToken);
+                value => value.Version + 1).SetProperty(value => value.LastUpdateUser, actor)
+                .SetProperty(value => value.LastUpdateTime, now), cancellationToken);
         if (changed != 1)
             throw new InvalidOperationException("Authorization revision row is missing. Apply the latest database migration.");
     }

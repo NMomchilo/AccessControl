@@ -4,15 +4,15 @@
     "weight": 1,
     "expectedPermit": true,
     "request": {
-      "subjectId": "benchmark-user",
-      "roleIds": [
-        "c4227c8a-16ef-eb3c-aedb-8197bf7f39c2"
-      ],
+      "subjectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
       "module": "customers",
       "httpMethod": "GET",
       "routeTemplate": "/customers/{id}",
       "tenantId": "default",
-      "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
+      "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+      "roleIds": [
+        "10954aa4-7532-80de-a80e-a7be3ad4c991"
+      ]
     }
   }
 ]

@@ -1,8 +1,9 @@
+using Common.Persistence;
+
 namespace AccessControl.Infrastructure.Database;
 
-public sealed class EntitlementEntity
+public sealed class EntitlementEntity : GeneralEntityBase
 {
-    public Guid Id { get; set; }
     public string TenantId { get; set; } = string.Empty;
     public Guid UnitOrganizationId { get; set; }
     public string Code { get; set; } = string.Empty;

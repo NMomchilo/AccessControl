@@ -21,14 +21,29 @@ public sealed class UserManagementKeyMiddleware(RequestDelegate next,
         bool resolution = (HttpMethods.IsPost(context.Request.Method) &&
             context.Request.Path == "/v1/users/resolve") ||
             (HttpMethods.IsGet(context.Request.Method) && context.Request.Path == "/v1/users/revision");
+        bool lookup = HttpMethods.IsGet(context.Request.Method) &&
+            context.Request.Path == "/v1/admin/access";
         string provided = context.Request.Headers[HeaderName].ToString();
         string? actor = resolution
             ? options.Value.Clients.FirstOrDefault(value => KeysEqual(provided, value.Key))?.ClientId
-            : options.Value.Administrators.FirstOrDefault(value => KeysEqual(provided, value.Key))?.ActorId;
+            : lookup
+                ? KeysEqual(provided, options.Value.AdminLookupKey) ? "access-control" : null
+                : options.Value.Administrators.FirstOrDefault(value => KeysEqual(provided, value.Key))?.ActorId;
         if (actor is null)
         {
             logger.LogWarning("User Management credential rejected for {Method} {Path}; trace {TraceId}",
                 context.Request.Method, context.Request.Path.Value, context.TraceIdentifier);
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        if (!resolution && (context.User.Identity?.IsAuthenticated != true ||
+            !Guid.TryParse(context.User.FindFirst("oid")?.Value ??
+                context.User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value,
+                out Guid objectId) || objectId == Guid.Empty))
+        {
+            logger.LogWarning("Administrator request lacks a validated actor; trace {TraceId}",
+                context.TraceIdentifier);
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }

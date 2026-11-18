@@ -10,8 +10,7 @@ namespace AccessControl.Tests;
 public sealed class UserManagementRevisionPollerTests
 {
     private static readonly Guid OrganizationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-    private static readonly UserIdentityRequest Request = new("default", OrganizationId, "Alpha",
-        "9155ff4d-2708-4770-b87e-e238645ec5df", null, null);
+    private static readonly UserIdentityRequest Request = new("default", OrganizationId, "9155ff4d-2708-4770-b87e-e238645ec5df");
 
     [Fact]
     public async Task Poller_RetriesFailedReadAndInvalidatesCachedRolesWhenRevisionChangesAsync()
@@ -66,8 +65,8 @@ public sealed class UserManagementRevisionPollerTests
         {
             Interlocked.Increment(ref Calls);
             return Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), request.TenantId,
-                request.UnitOrganizationId, request.UnitOrganizationName, true,
-                [new UserRoleInfo(CurrentRoleId, "reviewer", "Reviewer")]));
+                request.UnitOrganizationId, "Alpha", true,
+                [new UserRoleInfo(CurrentRoleId, "reader", "Reader")]));
         }
     }
 

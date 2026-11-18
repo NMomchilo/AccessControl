@@ -15,10 +15,12 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 name: "UnitOrganizations",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     Name = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    IsDeleted = table.Column<bool>(type: "bit", nullable: false)
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false),
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -30,9 +32,10 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 name: "UserManagementRevisions",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "int", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    Version = table.Column<long>(type: "bigint", nullable: false)
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
+                    Version = table.Column<long>(type: "bigint", nullable: false),
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -43,13 +46,18 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 name: "Users",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     ObjectId = table.Column<string>(type: "nvarchar(36)", maxLength: 36, nullable: false),
                     Email = table.Column<string>(type: "nvarchar(320)", maxLength: 320, nullable: true),
+                    NormalizedEmail = table.Column<string>(type: "nvarchar(320)", maxLength: 320, nullable: true, computedColumnSql: "LOWER([Email])", stored: true),
                     DisplayName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
-                    CreatedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false)
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false),
+                    IsSuperAdmin = table.Column<bool>(type: "bit", nullable: false),
+                    CreatedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -61,12 +69,15 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 name: "Roles",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     Code = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
                     DisplayName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    IsActive = table.Column<bool>(type: "bit", nullable: false)
+                    IsActive = table.Column<bool>(type: "bit", nullable: false),
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false),
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -84,13 +95,18 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 name: "UnitOrganizationMemberships",
                 columns: table => new
                 {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
+                    TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false)
+                    IsDeleted = table.Column<bool>(type: "bit", nullable: false),
+                    IsAdmin = table.Column<bool>(type: "bit", nullable: false),
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_UnitOrganizationMemberships", x => new { x.UserId, x.UnitOrganizationId });
+                    table.PrimaryKey("PK_UnitOrganizationMemberships", x => x.Id);
                     table.UniqueConstraint("AK_UnitOrganizationMemberships_TenantId_UserId_UnitOrganizationId", x => new { x.TenantId, x.UserId, x.UnitOrganizationId });
                     table.ForeignKey(
                         name: "FK_UnitOrganizationMemberships_UnitOrganizations_TenantId_UnitOrganizationId",
@@ -110,14 +126,17 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 name: "UserRoles",
                 columns: table => new
                 {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
                     UserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     RoleId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false)
+                    LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastUpdateTime = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_UserRoles", x => new { x.UserId, x.UnitOrganizationId, x.RoleId });
+                    table.PrimaryKey("PK_UserRoles", x => x.Id);
                     table.ForeignKey(
                         name: "FK_UserRoles_Roles_TenantId_UnitOrganizationId_RoleId",
                         columns: x => new { x.TenantId, x.UnitOrganizationId, x.RoleId },
@@ -139,8 +158,8 @@ namespace UserManagement.Infrastructure.Database.Migrations
 
             migrationBuilder.InsertData(
                 table: "UserManagementRevisions",
-                columns: new[] { "Id", "Version" },
-                values: new object[] { 1, 0L });
+                columns: new[] { "Id", "LastUpdateTime", "LastUpdateUser", "Version" },
+                values: new object[] { new Guid("a9acd89c-9a57-48c3-9dd1-222222222222"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), "Migration", 0L });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Roles_TenantId_UnitOrganizationId_Code",
@@ -152,6 +171,12 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 name: "IX_UnitOrganizationMemberships_TenantId_UnitOrganizationId",
                 table: "UnitOrganizationMemberships",
                 columns: new[] { "TenantId", "UnitOrganizationId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_UnitOrganizationMemberships_UserId_UnitOrganizationId",
+                table: "UnitOrganizationMemberships",
+                columns: new[] { "UserId", "UnitOrganizationId" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_UnitOrganizations_TenantId_Name",
@@ -169,6 +194,17 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 name: "IX_UserRoles_TenantId_UserId_UnitOrganizationId",
                 table: "UserRoles",
                 columns: new[] { "TenantId", "UserId", "UnitOrganizationId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_UserRoles_UserId_UnitOrganizationId_RoleId",
+                table: "UserRoles",
+                columns: new[] { "UserId", "UnitOrganizationId", "RoleId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Users_TenantId_NormalizedEmail",
+                table: "Users",
+                columns: new[] { "TenantId", "NormalizedEmail" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Users_TenantId_ObjectId",

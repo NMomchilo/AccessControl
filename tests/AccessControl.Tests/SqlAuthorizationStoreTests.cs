@@ -1,3 +1,4 @@
+using Common.Persistence;
 using AccessControl.Application;
 using AccessControl.Contracts;
 using AccessControl.Domain;
@@ -23,7 +24,7 @@ public sealed class SqlAuthorizationStoreTests
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
         await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>()
-            .UseSqlite(connection).Options);
+            .UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         SqlAuthorizationStore store = new(db, NullLogger<SqlAuthorizationStore>.Instance);
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
@@ -57,6 +58,7 @@ public sealed class SqlAuthorizationStoreTests
         await connection.OpenAsync();
         ServiceCollection services = new();
         services.AddLogging();
+        services.AddSingleton<ICurrentActorProvider>(TestActorProvider.Instance);
         services.AddDbContext<AccessControlDbContext>(builder => builder.UseSqlite(connection));
         services.AddScoped<SqlAuthorizationStore>();
         using ServiceProvider provider = services.BuildServiceProvider();
@@ -90,7 +92,7 @@ public sealed class SqlAuthorizationStoreTests
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
         await using AccessControlDbContext context = new(
-            new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
+            new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await context.Database.EnsureCreatedAsync();
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
 
@@ -109,6 +111,7 @@ public sealed class SqlAuthorizationStoreTests
         await connection.OpenAsync();
         ServiceCollection services = new();
         services.AddLogging();
+        services.AddSingleton<ICurrentActorProvider>(TestActorProvider.Instance);
         services.AddDbContext<AccessControlDbContext>(builder => builder.UseSqlite(connection));
         services.AddScoped<SqlAuthorizationStore>();
         using ServiceProvider provider = services.BuildServiceProvider();
@@ -128,6 +131,7 @@ public sealed class SqlAuthorizationStoreTests
         await connection.OpenAsync();
         ServiceCollection services = new();
         services.AddLogging();
+        services.AddSingleton<ICurrentActorProvider>(TestActorProvider.Instance);
         services.AddDbContext<AccessControlDbContext>(builder => builder.UseSqlite(connection));
         services.AddScoped<SqlAuthorizationStore>();
         using ServiceProvider provider = services.BuildServiceProvider();
@@ -170,7 +174,7 @@ public sealed class SqlAuthorizationStoreTests
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
         await using AccessControlDbContext context = new(
-            new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
+            new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await context.Database.EnsureCreatedAsync();
         await SeedAsync(context, "tenant");
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
@@ -186,7 +190,7 @@ public sealed class SqlAuthorizationStoreTests
         await connection.OpenAsync();
         DbContextOptions<AccessControlDbContext> options = new DbContextOptionsBuilder<AccessControlDbContext>()
             .UseSqlite(connection).Options;
-        await using AccessControlDbContext context = new(options);
+        await using AccessControlDbContext context = new(options, TestActorProvider.Instance);
         await context.Database.EnsureCreatedAsync();
         await SeedAsync(context, "tenant");
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
@@ -208,7 +212,7 @@ public sealed class SqlAuthorizationStoreTests
         await connection.OpenAsync();
         DbContextOptions<AccessControlDbContext> options = new DbContextOptionsBuilder<AccessControlDbContext>()
             .UseSqlite(connection).Options;
-        await using AccessControlDbContext writerContext = new(options);
+        await using AccessControlDbContext writerContext = new(options, TestActorProvider.Instance);
         await writerContext.Database.EnsureCreatedAsync();
         await SeedAsync(writerContext, "tenant");
         SqlAuthorizationStore writer = new(writerContext, NullLogger<SqlAuthorizationStore>.Instance);
@@ -217,6 +221,7 @@ public sealed class SqlAuthorizationStoreTests
 
         ServiceCollection services = new();
         services.AddLogging();
+        services.AddSingleton<ICurrentActorProvider>(TestActorProvider.Instance);
         services.AddDbContext<AccessControlDbContext>(builder => builder.UseSqlite(connection));
         services.AddScoped<SqlAuthorizationStore>();
         using ServiceProvider provider = services.BuildServiceProvider();
@@ -243,7 +248,7 @@ public sealed class SqlAuthorizationStoreTests
         await connection.OpenAsync();
         DbContextOptions<AccessControlDbContext> options = new DbContextOptionsBuilder<AccessControlDbContext>()
             .UseSqlite(connection).Options;
-        await using AccessControlDbContext context = new(options);
+        await using AccessControlDbContext context = new(options, TestActorProvider.Instance);
         await context.Database.EnsureCreatedAsync();
         await SeedAsync(context, "tenant-a");
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
@@ -261,18 +266,50 @@ public sealed class SqlAuthorizationStoreTests
     }
 
     [Fact]
+    public async Task DeletedPolicy_IsRetainedButHiddenFromDecisionsAndSearchUntilRestoredAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using AccessControlDbContext context = new(new DbContextOptionsBuilder<AccessControlDbContext>()
+            .UseSqlite(connection).Options, TestActorProvider.Instance);
+        await context.Database.EnsureCreatedAsync();
+        SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
+        PolicyCatalogService catalog = new(new SqlPolicyCatalog(context), NullLogger<PolicyCatalogService>.Instance);
+        AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
+        EndpointPolicy policy = new("tenant-a", "customers", "GET", "/status", true, [], Guid.Empty);
+        await store.UpsertPolicyAsync(policy, CancellationToken.None);
+
+        await store.DeletePolicyAsync("tenant-a", Guid.Empty, "customers", "GET", "/status", CancellationToken.None);
+
+        EndpointPolicyEntity saved = await context.EndpointPolicies.AsNoTracking().SingleAsync();
+        Assert.True(saved.IsDeleted);
+        Assert.Null(await store.GetPolicyAsync("tenant-a", Guid.Empty, "customers", "GET", "/status", CancellationToken.None));
+        Assert.Empty((await catalog.SearchAsync("tenant-a", null, null, null, 1, 10, CancellationToken.None)).Items);
+        Assert.False((await service.DecideAsync(new DecisionRequest(null, "customers", "GET", "/status", "tenant-a", Guid.Empty),
+            CancellationToken.None)).Permit);
+        Assert.Equal(2, await store.GetRevisionAsync(CancellationToken.None));
+
+        await store.UpsertPolicyAsync(policy, CancellationToken.None);
+
+        Assert.Single(await context.EndpointPolicies.ToArrayAsync());
+        Assert.False((await context.EndpointPolicies.AsNoTracking().SingleAsync()).IsDeleted);
+        Assert.True((await service.DecideAsync(new DecisionRequest(null, "customers", "GET", "/status", "tenant-a", Guid.Empty),
+            CancellationToken.None)).Permit);
+    }
+
+    [Fact]
     public async Task ReplaceRoleEntitlementsAsync_RevokesPreviousAccessAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
         DbContextOptions<AccessControlDbContext> options = new DbContextOptionsBuilder<AccessControlDbContext>()
             .UseSqlite(connection).Options;
-        await using AccessControlDbContext context = new(options);
+        await using AccessControlDbContext context = new(options, TestActorProvider.Instance);
         await context.Database.EnsureCreatedAsync();
         await SeedAsync(context, "tenant-a");
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
-        DecisionRequest request = new("alice", [Advisor], "customers", "GET", "/customers/{id}", "tenant-a", Organization);
+        DecisionRequest request = new("aaaaaaaa-1111-1111-1111-111111111111", "customers", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]);
         await store.UpsertPolicyAsync(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", false, [TestEntitlements.View], Organization), CancellationToken.None);
         await store.ReplaceRoleEntitlementsAsync("tenant-a", Organization, Advisor, [TestEntitlements.View], CancellationToken.None);
 

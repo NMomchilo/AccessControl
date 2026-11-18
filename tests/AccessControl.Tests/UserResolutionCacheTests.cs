@@ -8,9 +8,8 @@ namespace AccessControl.Tests;
 public sealed class UserResolutionCacheTests
 {
     private static readonly Guid OrganizationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-    private static readonly UserIdentityRequest Request = new("default", OrganizationId, "Alpha",
-        "9155ff4d-2708-4770-b87e-e238645ec5df", null, null);
-    private static readonly Guid Reviewer = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly UserIdentityRequest Request = new("default", OrganizationId, "9155ff4d-2708-4770-b87e-e238645ec5df");
+    private static readonly Guid Reader = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly Guid Manager = Guid.Parse("33333333-3333-3333-3333-333333333333");
 
     [Fact]
@@ -44,7 +43,7 @@ public sealed class UserResolutionCacheTests
         CountingClient source = new();
         using UserResolutionCache cache = CreateCache(source);
         await cache.ResolveAsync(Request, CancellationToken.None);
-        await cache.ResolveAsync(Request with { UnitOrganizationId = Guid.NewGuid(), UnitOrganizationName = "Beta" },
+        await cache.ResolveAsync(Request with { UnitOrganizationId = Guid.NewGuid() },
             CancellationToken.None);
         await cache.ResolveAsync(Request, CancellationToken.None);
         Assert.Equal(2, source.Calls);
@@ -105,8 +104,8 @@ public sealed class UserResolutionCacheTests
         await Task.Delay(40);
         UserIdentityResponse current = await cache.ResolveAsync(Request, CancellationToken.None);
 
-        Assert.Equal([Reviewer], before.Roles.Select(role => role.RoleId).ToArray());
-        Assert.Equal([Reviewer], stale.Roles.Select(role => role.RoleId).ToArray());
+        Assert.Equal([Reader], before.Roles.Select(role => role.RoleId).ToArray());
+        Assert.Equal([Reader], stale.Roles.Select(role => role.RoleId).ToArray());
         Assert.Equal([Manager], current.Roles.Select(role => role.RoleId).ToArray());
     }
 
@@ -123,7 +122,7 @@ public sealed class UserResolutionCacheTests
         await Assert.ThrowsAsync<HttpRequestException>(() => cache.ResolveAsync(Request, CancellationToken.None));
         UserIdentityResponse recovered = await cache.ResolveAsync(Request, CancellationToken.None);
 
-        Assert.Equal([Reviewer], recovered.Roles.Select(role => role.RoleId).ToArray());
+        Assert.Equal([Reader], recovered.Roles.Select(role => role.RoleId).ToArray());
         Assert.Equal(2, source.Calls);
     }
 
@@ -164,7 +163,7 @@ public sealed class UserResolutionCacheTests
         await second.ResolveAsync(Request, CancellationToken.None);
         source.Roles = ["manager"];
 
-        Assert.Equal([Reviewer], (await second.ResolveAsync(Request, CancellationToken.None)).Roles.Select(role => role.RoleId).ToArray());
+        Assert.Equal([Reader], (await second.ResolveAsync(Request, CancellationToken.None)).Roles.Select(role => role.RoleId).ToArray());
         first.ObserveRevision(1);
         second.ObserveRevision(1);
 
@@ -183,7 +182,7 @@ public sealed class UserResolutionCacheTests
         cache.ObserveRevision(0);
         Task<UserIdentityResponse> first = cache.ResolveAsync(Request, CancellationToken.None);
         cache.ObserveRevision(1);
-        source.Complete(Response("reviewer"));
+        source.Complete(Response("reader"));
         await first;
 
         await cache.ResolveAsync(Request, CancellationToken.None);
@@ -210,13 +209,13 @@ public sealed class UserResolutionCacheTests
                 await Task.Delay(delay.Value, cancellationToken);
             }
 
-            return Response("reviewer", request.TenantId);
+            return Response("reader", request.TenantId);
         }
     }
 
     private sealed class MutableClient : IUserManagementClient
     {
-        public IReadOnlyList<string> Roles { get; set; } = ["reviewer"];
+        public IReadOnlyList<string> Roles { get; set; } = ["reader"];
 
         public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(Response(Roles.Single(), request.TenantId));
@@ -233,7 +232,7 @@ public sealed class UserResolutionCacheTests
                 throw new HttpRequestException("temporary outage");
             }
 
-            return Task.FromResult(Response("reviewer", request.TenantId));
+            return Task.FromResult(Response("reader", request.TenantId));
         }
     }
 
@@ -264,11 +263,11 @@ public sealed class UserResolutionCacheTests
             }
 
             await _allStarted.Task.WaitAsync(cancellationToken);
-            return Response("reviewer", request.TenantId);
+            return Response("reader", request.TenantId);
         }
     }
 
     private static UserIdentityResponse Response(string code, string tenantId = "default") =>
         new(Guid.NewGuid(), tenantId, OrganizationId, "Alpha", true,
-            [new UserRoleInfo(code == "reviewer" ? Reviewer : Manager, code, code)]);
+            [new UserRoleInfo(code == "reader" ? Reader : Manager, code, code)]);
 }

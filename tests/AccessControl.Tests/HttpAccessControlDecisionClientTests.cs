@@ -4,6 +4,7 @@ using AccessControl.Client;
 using AccessControl.Contracts;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Http;
 
 namespace AccessControl.Tests;
 
@@ -28,21 +29,20 @@ public sealed class HttpAccessControlDecisionClientTests
         HttpAccessControlDecisionClient client = CreateClient(handler);
 
         DecisionResponse decision = await client.DecideAsync(
-            new DecisionRequest("oid", [Role], "customers", "GET", "/customers/{id}", "tenant-a", Organization),
+            new DecisionRequest("oid", "customers", "GET", "/customers/{id}", "tenant-a", Organization),
             CancellationToken.None);
 
         Assert.True(decision.Permit);
         Assert.Equal("/base/v1/decisions", path);
         Assert.Equal("decision-key", key);
         Assert.Equal(Organization, sent?.UnitOrganizationId);
-        Assert.Equal([Role], sent?.RoleIds);
         Assert.Equal("tenant-a", sent?.TenantId);
     }
 
     [Fact]
     public async Task DecideAsync_RejectsFailedAndEmptyResponsesAsync()
     {
-        DecisionRequest request = new("oid", [Role], "customers", "GET", "/customers/{id}", "tenant-a", Organization);
+        DecisionRequest request = new("oid", "customers", "GET", "/customers/{id}", "tenant-a", Organization);
         HttpAccessControlDecisionClient unavailable = CreateClient(new RecordingHandler((_, _) =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable))));
         HttpAccessControlDecisionClient empty = CreateClient(new RecordingHandler((_, _) =>
@@ -56,7 +56,7 @@ public sealed class HttpAccessControlDecisionClientTests
     }
 
     private static HttpAccessControlDecisionClient CreateClient(HttpMessageHandler handler) =>
-        new(new ClientFactory(handler), Options.Create(new AccessControlClientOptions
+        new(new ClientFactory(handler), new HttpContextAccessor(), Options.Create(new AccessControlClientOptions
         {
             ServiceUrl = "https://access.example/base/", ApiKey = "decision-key"
         }), NullLogger<HttpAccessControlDecisionClient>.Instance);

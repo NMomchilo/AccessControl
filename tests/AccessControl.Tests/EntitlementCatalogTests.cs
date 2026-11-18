@@ -21,7 +21,7 @@ public sealed class EntitlementCatalogTests
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
-        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
+        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
         EntitlementInfo created = await service.CreateAsync(new("tenant-a", OrganizationA, "customers.view", "View"), CancellationToken.None);
@@ -36,7 +36,7 @@ public sealed class EntitlementCatalogTests
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
-        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
+        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
         EntitlementInfo created = await service.CreateAsync(new("tenant-a", OrganizationA, "customers.view", "Old name"), CancellationToken.None);
@@ -69,7 +69,7 @@ public sealed class EntitlementCatalogTests
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
-        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
+        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
 
@@ -88,7 +88,7 @@ public sealed class EntitlementCatalogTests
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
-        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
+        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         using AuthorizationCache cache = new(Options.Create(new AccessControlCacheOptions()), NullLogger<AuthorizationCache>.Instance);
         EntitlementCatalogService catalog = new(new SqlEntitlementCatalog(db, cache), NullLogger<EntitlementCatalogService>.Instance);
@@ -107,7 +107,7 @@ public sealed class EntitlementCatalogTests
         await decisions.ReplaceRoleEntitlementsAsync(new("tenant-a", Role, [view.Id], OrganizationA), CancellationToken.None);
         await decisions.UpsertPolicyAsync(new("tenant-a", "customers", "GET", "/customers/{id}", false,
             [view.Id], OrganizationA), CancellationToken.None);
-        DecisionRequest request = new("alice", [Role], "customers", "GET", "/customers/{id}", "tenant-a", OrganizationA);
+        DecisionRequest request = new("aaaaaaaa-1111-1111-1111-111111111111", "customers", "GET", "/customers/{id}", "tenant-a", OrganizationA, [Role]);
         Assert.True((await decisions.DecideAsync(request, CancellationToken.None)).Permit);
         using AuthorizationCache secondCache = new(Options.Create(new AccessControlCacheOptions()), NullLogger<AuthorizationCache>.Instance);
         AuthorizationService secondInstance = new(new CachingAuthorizationStore(sql, secondCache,
@@ -134,7 +134,7 @@ public sealed class EntitlementCatalogTests
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
-        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
+        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
         await service.CreateAsync(new("tenant-a", OrganizationA, "customers.view", "View"), CancellationToken.None);
@@ -161,7 +161,7 @@ public sealed class EntitlementCatalogTests
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
         await connection.OpenAsync();
-        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options);
+        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
 
         await Assert.ThrowsAsync<ArgumentException>(() => service.ListAsync(" ", null, 1, 10, CancellationToken.None));

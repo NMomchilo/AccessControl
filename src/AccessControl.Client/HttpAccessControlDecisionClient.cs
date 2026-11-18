@@ -1,12 +1,15 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
 using AccessControl.Contracts;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace AccessControl.Client;
 
-public sealed class HttpAccessControlDecisionClient(IHttpClientFactory clientFactory, IOptions<AccessControlClientOptions> options,
+public sealed class HttpAccessControlDecisionClient(IHttpClientFactory clientFactory, IHttpContextAccessor contextAccessor,
+    IOptions<AccessControlClientOptions> options,
     ILogger<HttpAccessControlDecisionClient> logger) : IAccessControlDecisionClient
 {
     public async Task<DecisionResponse> DecideAsync(DecisionRequest request, CancellationToken cancellationToken)
@@ -17,6 +20,11 @@ public sealed class HttpAccessControlDecisionClient(IHttpClientFactory clientFac
             Content = JsonContent.Create(request)
         };
         message.Headers.Add("X-Access-Control-Key", options.Value.ApiKey);
+        string? authorization = contextAccessor.HttpContext?.Request.Headers.Authorization.ToString();
+        if (AuthenticationHeaderValue.TryParse(authorization, out AuthenticationHeaderValue? bearer) &&
+            string.Equals(bearer.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(bearer.Parameter))
+            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer.Parameter);
         Stopwatch timer = Stopwatch.StartNew();
         logger.LogDebug("Sending decision request for {Module} {Method} {Route}", request.Module, request.HttpMethod, request.RouteTemplate);
         using HttpResponseMessage response = await client.SendAsync(message, cancellationToken);

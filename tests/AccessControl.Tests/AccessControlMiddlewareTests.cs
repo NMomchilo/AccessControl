@@ -12,7 +12,7 @@ namespace AccessControl.Tests;
 public sealed class AccessControlMiddlewareTests
 {
     private static readonly Guid Advisor = Guid.Parse("11111111-1111-1111-1111-111111111111");
-    private static readonly Guid Reviewer = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid Reader = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly Guid Organization = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     [Theory]
     [InlineData(true, false, 200, true)]
@@ -42,7 +42,6 @@ public sealed class AccessControlMiddlewareTests
         await sut.InvokeAsync(context);
 
         Assert.Null(client.Request?.SubjectId);
-        Assert.Empty(client.Request?.RoleIds ?? []);
         Assert.Equal("GET", client.Request?.HttpMethod);
         Assert.Equal("/customers/{id}", client.Request?.RouteTemplate);
         Assert.Equal(Guid.Empty, client.Request?.UnitOrganizationId);
@@ -65,7 +64,7 @@ public sealed class AccessControlMiddlewareTests
         Assert.Equal("tenant-a", client.Request?.TenantId);
         Assert.Equal("customers", client.Request?.Module);
         Assert.Equal(Organization, client.Request?.UnitOrganizationId);
-        Assert.Contains(Advisor, client.Request?.RoleIds ?? []);
+        Assert.Equal([Advisor], client.Request?.RoleIds);
     }
 
     [Fact]
@@ -78,13 +77,14 @@ public sealed class AccessControlMiddlewareTests
             NullLogger<AccessControlMiddleware>.Instance);
         DefaultHttpContext context = CreateContext();
         context.User = new ClaimsPrincipal(context.User.Identities.First(identity => identity.AuthenticationType == "test"));
-        context.User.AddIdentity(new ClaimsIdentity([new Claim("access_control_role_id", Reviewer.ToString("D")),
+        context.User.AddIdentity(new ClaimsIdentity([new Claim("access_control_role_id", Reader.ToString("D")),
             new Claim("user_management_tenant_id", "default"),
             new Claim("user_management_unit_organization_id", Organization.ToString("D"))], "UserManagement"));
 
         await sut.InvokeAsync(context);
 
-        Assert.Equal([Reviewer], client.Request?.RoleIds);
+        Assert.Equal(Organization, client.Request?.UnitOrganizationId);
+        Assert.Equal([Reader], client.Request?.RoleIds);
     }
 
     [Fact]
@@ -98,13 +98,13 @@ public sealed class AccessControlMiddlewareTests
             }), NullLogger<AccessControlMiddleware>.Instance);
         DefaultHttpContext context = CreateContext();
         context.User.AddIdentity(new ClaimsIdentity([
-            new Claim("access_control_role_id", Reviewer.ToString("D")),
+            new Claim("access_control_role_id", Reader.ToString("D")),
             new Claim("user_management_tenant_id", "another-tenant")], "UserManagement"));
 
         await sut.InvokeAsync(context);
 
-        Assert.Equal(403, context.Response.StatusCode);
-        Assert.Null(client.Request);
+        Assert.Equal(200, context.Response.StatusCode);
+        Assert.Equal(Guid.Empty, client.Request?.UnitOrganizationId);
     }
 
     [Fact]
@@ -118,8 +118,8 @@ public sealed class AccessControlMiddlewareTests
 
         await sut.InvokeAsync(context);
 
-        Assert.Equal(401, context.Response.StatusCode);
-        Assert.Null(client.Request);
+        Assert.Equal(200, context.Response.StatusCode);
+        Assert.Null(client.Request?.SubjectId);
     }
 
     [Fact]
@@ -150,8 +150,8 @@ public sealed class AccessControlMiddlewareTests
 
         await sut.InvokeAsync(context);
 
-        Assert.Equal(403, context.Response.StatusCode);
-        Assert.Null(client.Request);
+        Assert.Equal(200, context.Response.StatusCode);
+        Assert.Equal(Guid.Empty, client.Request?.UnitOrganizationId);
     }
 
     [Fact]
@@ -188,8 +188,8 @@ public sealed class AccessControlMiddlewareTests
 
         await sut.InvokeAsync(context);
 
-        Assert.Equal(403, context.Response.StatusCode);
-        Assert.Null(client.Request);
+        Assert.Equal(200, context.Response.StatusCode);
+        Assert.NotNull(client.Request);
     }
 
     [Fact]

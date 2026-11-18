@@ -1,7 +1,10 @@
+using Common.Persistence;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Security.Claims;
+using System.Text.Encodings.Web;
 using AccessControl.Application;
 using AccessControl.Contracts;
 using AccessControl.Domain;
@@ -17,17 +20,21 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Options;
 
 namespace AccessControl.Benchmarks;
 
 internal static class Program
 {
-    private const string DecisionKey = "local-benchmark-decision-key";
+    private const string DecisionKey = "local-benchmark-decision-key-0123456789";
+    private const string BenchmarkBearer = "benchmark-token";
+    private const string BenchmarkOid = "9155ff4d-2708-4770-b87e-e238645ec5df";
     private static readonly Guid Reader = Guid.Parse("10954aa4-7532-80de-a80e-a7be3ad4c991");
     private static readonly Guid Organization = Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly Guid BenchmarkRead = Guid.Parse("99999999-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-    private static readonly DecisionRequest Request = new("benchmark-user", [Reader], "benchmark",
-        "GET", "/benchmark/{id}", "benchmark-tenant", Organization);
+    private static readonly DecisionRequest Request = new(BenchmarkOid, "benchmark",
+        "GET", "/benchmark/{id}", "benchmark-tenant", Organization, [Reader]);
 
     public static async Task<int> Main(string[] args)
     {
@@ -43,14 +50,17 @@ internal static class Program
                 string key = Environment.GetEnvironmentVariable("AccessControlBenchmark__DecisionKey")
                     ?? throw new ArgumentException("Set AccessControlBenchmark__DecisionKey for remote mode.");
                 using HttpClient client = new() { BaseAddress = new Uri(settings.RemoteUrl), Timeout = TimeSpan.FromSeconds(10) };
-                await MeasureAllAsync("remote SQL Server service", client, key, settings, cases, results);
+                string? bearer = Environment.GetEnvironmentVariable("AccessControlBenchmark__BearerToken");
+                if (cases.Any(item => item.Request.SubjectId is not null) && string.IsNullOrWhiteSpace(bearer))
+                    throw new ArgumentException("Set AccessControlBenchmark__BearerToken for protected remote decisions.");
+                await MeasureAllAsync("remote SQL Server service", client, key, bearer, settings, cases, results);
             }
             else
             {
                 await using (BenchmarkFactory fake = new(BenchmarkStore.Fake))
                 {
                     using HttpClient client = fake.CreateClient();
-                    await MeasureAllAsync("in-memory store", client, DecisionKey, settings, cases, results);
+                    await MeasureAllAsync("in-memory store", client, DecisionKey, BenchmarkBearer, settings, cases, results);
                 }
 
                 string dataSource = $"access-control-benchmark-{Guid.NewGuid():N}";
@@ -61,7 +71,7 @@ internal static class Program
                 {
                     using HttpClient client = sqlite.CreateClient();
                     await SeedAsync(sqlite.Services);
-                    await MeasureAllAsync("SQLite store", client, DecisionKey, settings, cases, results);
+                    await MeasureAllAsync("SQLite store", client, DecisionKey, BenchmarkBearer, settings, cases, results);
                 }
             }
 
@@ -96,9 +106,10 @@ internal static class Program
             item.Request is null || string.IsNullOrWhiteSpace(item.Request.Module) ||
             string.IsNullOrWhiteSpace(item.Request.HttpMethod) ||
             string.IsNullOrWhiteSpace(item.Request.RouteTemplate) ||
-            string.IsNullOrWhiteSpace(item.Request.TenantId) || item.Request.RoleIds is null ||
+            string.IsNullOrWhiteSpace(item.Request.TenantId) ||
             (item.Request.SubjectId is not null && item.Request.UnitOrganizationId == Guid.Empty) ||
-            item.Request.RoleIds.Any(id => id == Guid.Empty)) ||
+            item.Request.RoleIds is { Count: > 16 } ||
+            item.Request.RoleIds?.Any(id => id == Guid.Empty) == true) ||
             cases.Sum(item => item.Weight) > 10000)
         {
             throw new ArgumentException("Workload must contain valid named cases with positive weights.");
@@ -124,15 +135,15 @@ internal static class Program
         await store.ReplaceRoleEntitlementsAsync("benchmark-tenant", Organization, Reader, [BenchmarkRead], CancellationToken.None);
     }
 
-    private static async Task MeasureAllAsync(string scenario, HttpClient client, string key,
+    private static async Task MeasureAllAsync(string scenario, HttpClient client, string key, string? bearer,
         Settings settings, IReadOnlyList<BenchmarkCase> cases, List<BenchmarkResult> results)
     {
         foreach (int concurrency in settings.Concurrency)
         {
-            await SendBatchAsync(client, key, Math.Min(200, settings.RequestCount), concurrency, cases, null);
+            await SendBatchAsync(client, key, bearer, Math.Min(200, settings.RequestCount), concurrency, cases, null);
             long[] ticks = new long[settings.RequestCount];
             Stopwatch wall = Stopwatch.StartNew();
-            await SendBatchAsync(client, key, settings.RequestCount, concurrency, cases, ticks);
+            await SendBatchAsync(client, key, bearer, settings.RequestCount, concurrency, cases, ticks);
             wall.Stop();
             Array.Sort(ticks);
             double ToMs(long value) => value * 1000.0 / Stopwatch.Frequency;
@@ -142,7 +153,7 @@ internal static class Program
         }
     }
 
-    private static async Task SendBatchAsync(HttpClient client, string key, int count, int concurrency,
+    private static async Task SendBatchAsync(HttpClient client, string key, string? bearer, int count, int concurrency,
         IReadOnlyList<BenchmarkCase> cases, long[]? ticks)
     {
         int next = -1;
@@ -174,6 +185,8 @@ internal static class Program
                     Content = JsonContent.Create(selected.Request)
                 };
                 message.Headers.Add("X-Access-Control-Key", key);
+                if (selected.Request.SubjectId is not null && bearer is not null)
+                    message.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
                 long started = Stopwatch.GetTimestamp();
                 using HttpResponseMessage response = await client.SendAsync(message);
                 DecisionResponse? decision = await response.Content.ReadFromJsonAsync<DecisionResponse>();
@@ -253,11 +266,25 @@ internal static class Program
             builder.UseContentRoot(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
                 "../../../../../src/AccessControl.Service")));
             builder.UseSetting("ConnectionStrings:AccessControl", "Server=localhost;Database=unused;Trusted_Connection=True");
-            builder.UseSetting("ApiKeys:DecisionKey", DecisionKey);
-            builder.UseSetting("ApiKeys:AdminKey", "local-benchmark-admin-key");
+            builder.UseSetting("ApiKeys:DecisionClients:0:ClientId", "benchmark-local");
+            builder.UseSetting("ApiKeys:DecisionClients:0:Key", DecisionKey);
+            builder.UseSetting("ApiKeys:DecisionClients:0:Modules:0", "benchmark");
+            builder.UseSetting("ApiKeys:DecisionClients:0:Tenants:0", "benchmark-tenant");
+            builder.UseSetting("ApiKeys:DecisionClients:0:AllowAnyUnitOrganization", "true");
+            builder.UseSetting("ApiKeys:AdminKey", "local-benchmark-admin-key-0123456789");
+            builder.UseSetting("EntraAdmin:Authority", "https://login.microsoftonline.com/test/v2.0");
+            builder.UseSetting("EntraAdmin:Audience", "api://benchmark-admin");
+            builder.UseSetting("DecisionEntra:Authority", "https://login.microsoftonline.com/test/v2.0");
+            builder.UseSetting("DecisionEntra:Audience", "api://benchmark-decision");
+            builder.UseSetting("DecisionEntra:AuthenticationScheme", "BenchmarkEntra");
+            builder.UseSetting("UserManagementAdminLookup:ServiceUrl", "http://localhost:5220");
+            builder.UseSetting("UserManagementAdminLookup:LookupKey", new string('a', 40));
             builder.ConfigureLogging(logging => logging.ClearProviders());
             builder.ConfigureTestServices(services =>
             {
+                services.AddSingleton<ICurrentActorProvider>(new BenchmarkActorProvider());
+                services.AddAuthentication(options => options.DefaultAuthenticateScheme = "BenchmarkEntra")
+                    .AddScheme<AuthenticationSchemeOptions, BenchmarkAuthenticationHandler>("BenchmarkEntra", _ => { });
                 if (store == BenchmarkStore.Fake)
                 {
                     services.RemoveAll<IAuthorizationStore>();
@@ -306,10 +333,28 @@ internal static class Program
             CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
+    private sealed class BenchmarkAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options,
+        ILoggerFactory logger, UrlEncoder encoder) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        {
+            if (Request.Headers.Authorization.ToString() != "Bearer " + BenchmarkBearer)
+                return Task.FromResult(AuthenticateResult.NoResult());
+            ClaimsIdentity identity = new([new Claim("oid", BenchmarkOid)], Scheme.Name);
+            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(
+                new ClaimsPrincipal(identity), Scheme.Name)));
+        }
+    }
+
     private enum BenchmarkStore { Fake, Sqlite }
     private sealed record BenchmarkCase(string Name, DecisionRequest Request, bool ExpectedPermit, int Weight);
     private sealed record BenchmarkResult(string Scenario, int Concurrency, int Requests, double WallTimeMs,
         double RequestsPerSecond, double P50Ms, double P95Ms, double P99Ms, double MaxMs);
     private sealed record BenchmarkReport(DateTimeOffset TimestampUtc, string Runtime, string Os, int ProcessorCount,
         int RequestsPerRun, IReadOnlyList<BenchmarkCase> Workload, IReadOnlyList<BenchmarkResult> Results);
+}
+
+file sealed class BenchmarkActorProvider : ICurrentActorProvider
+{
+    public string ActorId => "benchmark-setup";
 }

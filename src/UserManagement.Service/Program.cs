@@ -1,3 +1,4 @@
+using AdminManagement.Security;
 using Microsoft.EntityFrameworkCore;
 using UserManagement.Application;
 using UserManagement.Infrastructure;
@@ -13,6 +14,9 @@ public static class Program
         WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
         builder.Services.AddUserManagementApplication();
         builder.Services.AddUserManagementInfrastructure(builder.Configuration);
+        builder.Services.AddEntraAdminAuthentication(builder.Configuration);
+        builder.Services.AddScoped<IAdminDutyReader, UserManagementAdminDutyReader>();
+        builder.Services.AddScoped<IIdentityService, IdentityService>();
         builder.Services.AddOptions<UserManagementOptions>()
             .Bind(builder.Configuration.GetSection(UserManagementOptions.SectionName))
             .Validate(UserManagementOptions.IsValid, "UserManagementRules exceed database limits.")
@@ -41,6 +45,7 @@ public static class Program
                 options.SwaggerEndpoint("/openapi/user-management.v1.json", "User Management API v1");
             });
         }
+        app.UseAuthentication();
         app.UseMiddleware<UserManagementKeyMiddleware>();
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         app.MapGet("/ready", async (UserManagementDbContext db, CancellationToken cancellationToken) =>

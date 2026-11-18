@@ -1,5 +1,7 @@
 # End-to-end access flow benchmark — 2026-11-09
 
+Historical result: this report describes the former automatic Reviewer assignment. Current code requires administrator-created UOs, users, memberships, roles, and explicit role assignment; these figures do not measure that flow.
+
 ## What was measured
 
 The [benchmark consumer](../benchmarks/AccessFlow.Benchmarks/Program.cs) runs an ASP.NET Core controller with this order:

@@ -1,8 +1,10 @@
 # Access Control API contract
 
-User provisioning and UO-scoped role IDs are documented in [User Management API and client](user-management-api.md). The consuming service runs User Management after JWT and trusted gateway authentication and before Access Control, then configures `AccessControl:RoleIdClaimType` as `access_control_role_id` and `AccessControl:RoleIdentityAuthenticationType` as `UserManagement`.
+User resolution and UO-scoped role IDs are documented in [User Management API and client](user-management-api.md). The consuming service validates its Entra JWT and trusted gateway UO assertion before Access Control. User Management middleware adds role IDs to `HttpContext.User`; Access Control middleware forwards them for protected decisions.
 
-Use HTTPS. Every request except `GET /health` requires `X-Access-Control-Key`. The decision key can call only `POST /v1/decisions`; the separate admin key is for policies, role grants, and entitlement administration.
+Use HTTPS. Every request except `GET /health` requires `X-Access-Control-Key`. A configured per-client decision key can call only `POST /v1/decisions` for its allowed modules, tenants, and UOs. Non-anonymous decisions also require an Entra bearer token whose validated `oid` matches `subjectId`. Administrator operations require the separate admin key and a validated Entra bearer token. Access Control asks User Management to verify the actor's current administrative duties for each request; the key and token alone do not grant a tenant or UO scope. A missing or invalid key or actor token returns `401`, an actor without the required scope returns `403`, and an unavailable User Management scope lookup returns `503`.
+
+An active SuperAdmin can manage any UO in a tenant where User Management assigned that duty, tenant-wide searches, and global public policies. An active Admin can manage only assigned UOs. A UO-scoped administrator can use the UO-specific policy, entitlement, and role-grant operations for an assigned UO. Tenant-wide entitlement lists and policy searches without a UO filter require SuperAdmin. An explicit all-zero UO ID selects global public policies and also requires SuperAdmin. Access Control checks the selected tenant and UO before reading or changing administrator data.
 
 ## Decision
 
@@ -10,23 +12,23 @@ Use HTTPS. Every request except `GET /health` requires `X-Access-Control-Key`. T
 
 ```json
 {
-  "subjectId": "alice",
-  "roleIds": ["c4227c8a-16ef-eb3c-aedb-8197bf7f39c2"],
+  "subjectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
   "module": "customers",
   "httpMethod": "GET",
   "routeTemplate": "/customers/{id}",
   "tenantId": "default",
-  "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
+  "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+  "roleIds": ["c4227c8a-16ef-eb3c-aedb-8197bf7f39c2"]
 }
 ```
 
-The client middleware uses the authenticated user's `oid` claim as `subjectId`; `subjectId` is `null`, `roleIds` is empty, and `unitOrganizationId` is all-zero for an anonymous caller. It forwards only GUID role IDs and the UO ID from the configured User Management identity. An authenticated caller without `oid` receives HTTP 401 before the decision request. The response is always a decision when the request is valid and the store is available:
+The client middleware uses the authenticated user's `oid` as `subjectId`, forwards the original bearer token, and includes role IDs from the dedicated User Management identity. `subjectId` is null, `unitOrganizationId` is all-zero, and `roleIds` is empty for an anonymous caller. Access Control validates a bearer token against `DecisionEntra` for non-null subjects and checks the decision client scope. The response is:
 
 ```json
 { "permit": true, "reason": "Permit", "authenticationRequired": false }
 ```
 
-The evaluator looks up the policy keyed by tenant, UO ID, module, HTTP method, and normalized route template. If no UO-specific policy exists, it may use a global public policy with the all-zero UO ID; a specific policy takes precedence. A missing policy denies. A protected policy requires a subject and at least one active entitlement ID granted to a supplied role ID in that tenant and UO. The required entitlement IDs use **OR** semantics. An anonymous caller without a global public policy gets `authenticationRequired: true` and `401`; an authenticated caller with no policy gets `403`. Other Deny decisions return `403`. Decision transport or store failures return `503` from the client middleware.
+The evaluator looks up the policy keyed by tenant, UO ID, module, HTTP method, and normalized route template. If no UO-specific policy exists, it may use a global public policy with the all-zero UO ID; a specific policy takes precedence. A missing policy denies. A protected policy requires a subject and at least one active entitlement ID granted to a forwarded role ID in that tenant and UO. The required entitlement IDs use **OR** semantics. An anonymous caller without a global public policy gets `authenticationRequired: true` and `401`; an authenticated caller with no policy gets `403`. Other Deny decisions return `403`. Decision transport or store failures return `503` from the client middleware. User Management resolves the user before this decision call; its cached role claims may remain effective for up to five seconds after a role change.
 
 ## Entitlement catalog
 
@@ -60,7 +62,7 @@ A public policy uses `"isPublic": true` and `"requiredEntitlementIds": []`; an a
 
 `GET /v1/policies?tenantId=default&unitOrganizationId=<uo-guid>&module=customers&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D` returns the policy (`200`) or `404`.
 
-`DELETE /v1/policies` accepts only the key fields (`tenantId`, `unitOrganizationId`, `module`, `httpMethod`, `routeTemplate`) in a JSON body and returns `204`.
+`DELETE /v1/policies` accepts only the key fields (`tenantId`, `unitOrganizationId`, `module`, `httpMethod`, `routeTemplate`) in a JSON body and returns `204`, including if no active policy matches. Deletion is soft: the policy row remains in the database, but the decision evaluator, `GET`, and search exclude it. The authorization revision advances so other instances invalidate cached decisions. A later `PUT` with the same key restores and replaces the policy.
 
 ## Role grants
 
@@ -87,6 +89,6 @@ The administrator can list registered entitlements, including disabled and unref
 
 Both return `{ "items": [{ "id": "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "tenantId": "default", "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "code": "customers.view", "displayName": "View customers", "isActive": true }], "totalCount": 1, "page": 1, "pageSize": 100 }`. Rows are ordered by UO ID, code, and entitlement ID. `page` starts at 1, `pageSize` must be 1–100, and invalid or overflowing pagination returns `400`. The endpoint requires the administrator key.
 
-`GET /v1/policies` still reads one policy by its complete tenant, UO ID, module, HTTP method, and route-template key. For frontend tables, `GET /v1/policies/search?tenantId=default&page=1&pageSize=100` returns a `PolicyPageResponse` with `items`, `totalCount`, `page`, and `pageSize`. Optional `unitOrganizationId`, `module`, and `httpMethod` filters narrow the results; an explicit all-zero UO ID selects global public policies. Each item includes the required entitlement IDs. Search is administrator-only, read-only, and queries the database directly rather than decision caches.
+`GET /v1/policies` still reads one active policy by its complete tenant, UO ID, module, HTTP method, and route-template key. For frontend tables, `GET /v1/policies/search?tenantId=default&page=1&pageSize=100` returns a `PolicyPageResponse` with `items`, `totalCount`, `page`, and `pageSize`. Optional `unitOrganizationId`, `module`, and `httpMethod` filters narrow the results; an explicit all-zero UO ID selects global public policies. Each item includes the required entitlement IDs. Search is read-only, excludes soft-deleted policies, and queries the database directly rather than decision caches.
 
-The decision service trusts the consuming service's authenticated subject and role-ID claims; it does not query User Management. Keep decision credentials secret, use HTTPS, and bind callers to allowed modules and tenants before accepting mutually untrusted services. The initial migration creates the catalog and ID-based grant and policy relationships in an empty database; it does not import legacy strings.
+The decision service validates the forwarded subject token and uses the role IDs asserted by the consuming API. Keep client credentials secret and scope each one to allowed modules, tenants, and UOs. `AllowAnyUnitOrganization` is an explicit choice for a trusted client that handles dynamic UOs. The fresh initial migration targets an empty first-version database and does not import legacy strings.

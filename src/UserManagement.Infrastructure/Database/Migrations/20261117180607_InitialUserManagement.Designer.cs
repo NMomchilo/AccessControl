@@ -12,7 +12,7 @@ using UserManagement.Infrastructure.Database;
 namespace UserManagement.Infrastructure.Database.Migrations
 {
     [DbContext(typeof(UserManagementDbContext))]
-    [Migration("20261113115754_InitialUserManagement")]
+    [Migration("20261117180607_InitialUserManagement")]
     partial class InitialUserManagement
     {
         /// <inheritdoc />
@@ -29,7 +29,8 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValueSql("NEWSEQUENTIALID()");
 
                     b.Property<string>("Code")
                         .IsRequired()
@@ -43,6 +44,17 @@ namespace UserManagement.Infrastructure.Database.Migrations
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("LastUpdateTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastUpdateUser")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
@@ -64,10 +76,19 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValueSql("NEWSEQUENTIALID()");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
+
+                    b.Property<DateTime>("LastUpdateTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastUpdateUser")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -90,20 +111,42 @@ namespace UserManagement.Infrastructure.Database.Migrations
 
             modelBuilder.Entity("UserManagement.Infrastructure.Database.UnitOrganizationMembershipEntity", b =>
                 {
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValueSql("NEWSEQUENTIALID()");
 
-                    b.Property<Guid>("UnitOrganizationId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<bool>("IsAdmin")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("LastUpdateTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastUpdateUser")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
-                    b.HasKey("UserId", "UnitOrganizationId");
+                    b.Property<Guid>("UnitOrganizationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
 
                     b.HasIndex("TenantId", "UnitOrganizationId");
+
+                    b.HasIndex("UserId", "UnitOrganizationId")
+                        .IsUnique();
 
                     b.ToTable("UnitOrganizationMemberships", (string)null);
                 });
@@ -112,7 +155,8 @@ namespace UserManagement.Infrastructure.Database.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValueSql("NEWSEQUENTIALID()");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
@@ -129,6 +173,26 @@ namespace UserManagement.Infrastructure.Database.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsSuperAdmin")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("LastUpdateTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastUpdateUser")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("NormalizedEmail")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)")
+                        .HasComputedColumnSql("LOWER([Email])", true);
+
                     b.Property<string>("ObjectId")
                         .IsRequired()
                         .HasMaxLength(36)
@@ -141,6 +205,8 @@ namespace UserManagement.Infrastructure.Database.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("TenantId", "NormalizedEmail");
+
                     b.HasIndex("TenantId", "ObjectId")
                         .IsUnique();
 
@@ -149,11 +215,18 @@ namespace UserManagement.Infrastructure.Database.Migrations
 
             modelBuilder.Entity("UserManagement.Infrastructure.Database.UserManagementRevisionEntity", b =>
                 {
-                    b.Property<int>("Id")
+                    b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValueSql("NEWSEQUENTIALID()");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+                    b.Property<DateTime>("LastUpdateTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastUpdateUser")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<long>("Version")
                         .HasColumnType("bigint");
@@ -165,18 +238,27 @@ namespace UserManagement.Infrastructure.Database.Migrations
                     b.HasData(
                         new
                         {
-                            Id = 1,
+                            Id = new Guid("a9acd89c-9a57-48c3-9dd1-222222222222"),
+                            LastUpdateTime = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
+                            LastUpdateUser = "Migration",
                             Version = 0L
                         });
                 });
 
             modelBuilder.Entity("UserManagement.Infrastructure.Database.UserRoleEntity", b =>
                 {
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValueSql("NEWSEQUENTIALID()");
 
-                    b.Property<Guid>("UnitOrganizationId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<DateTime>("LastUpdateTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastUpdateUser")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<Guid>("RoleId")
                         .HasColumnType("uniqueidentifier");
@@ -186,11 +268,20 @@ namespace UserManagement.Infrastructure.Database.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
-                    b.HasKey("UserId", "UnitOrganizationId", "RoleId");
+                    b.Property<Guid>("UnitOrganizationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
 
                     b.HasIndex("TenantId", "UnitOrganizationId", "RoleId");
 
                     b.HasIndex("TenantId", "UserId", "UnitOrganizationId");
+
+                    b.HasIndex("UserId", "UnitOrganizationId", "RoleId")
+                        .IsUnique();
 
                     b.ToTable("UserRoles", (string)null);
                 });

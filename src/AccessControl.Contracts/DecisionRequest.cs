@@ -4,9 +4,9 @@ namespace AccessControl.Contracts;
 
 public sealed record DecisionRequest(
     string? SubjectId,
-    IReadOnlyList<Guid> RoleIds,
     string Module,
     string HttpMethod,
     string RouteTemplate,
     string TenantId,
-    [property: JsonRequired] Guid UnitOrganizationId);
+    [property: JsonRequired] Guid UnitOrganizationId,
+    IReadOnlyList<Guid>? RoleIds = null);

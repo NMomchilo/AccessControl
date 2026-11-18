@@ -25,6 +25,7 @@ public static class AccessControlExtensions
             .ValidateOnStart();
         services.AddHttpClient(nameof(HttpAccessControlDecisionClient), (provider, client) =>
             client.Timeout = TimeSpan.FromSeconds(provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<AccessControlClientOptions>>().Value.TimeoutSeconds));
+        services.AddHttpContextAccessor();
         services.AddSingleton<IAccessControlDecisionClient, HttpAccessControlDecisionClient>();
         return services;
     }

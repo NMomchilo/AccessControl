@@ -6,7 +6,7 @@ namespace UserManagement.Service.Controllers;
 
 [ApiController]
 [Route("v1/unit-organizations")]
-public sealed class UnitOrganizationsController(UserManagementService service,
+public sealed class UnitOrganizationsController(UserManagementService service, IUserManagementAdminAuthorizer authorizer,
     ILogger<UnitOrganizationsController> logger) : ControllerBase
 {
     [HttpGet("{id:guid}/users")]
@@ -16,6 +16,7 @@ public sealed class UnitOrganizationsController(UserManagementService service,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 100,
         CancellationToken cancellationToken = default)
     {
+        await authorizer.RequireAdminAsync(tenantId, VerifiedAdminIdentity.Oid(User, tenantId), id, cancellationToken);
         PagedResult<UserSummary>? result = await service.GetUsersPageAsync(tenantId, id, page, pageSize,
             cancellationToken);
         return result is null ? NotFound() : Ok(result);
@@ -28,6 +29,7 @@ public sealed class UnitOrganizationsController(UserManagementService service,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 100,
         CancellationToken cancellationToken = default)
     {
+        await authorizer.RequireAdminAsync(tenantId, VerifiedAdminIdentity.Oid(User, tenantId), id, cancellationToken);
         PagedResult<RoleInfo>? result = await service.GetRolesPageAsync(tenantId, id, page, pageSize,
             cancellationToken);
         return result is null ? NotFound() : Ok(result);
@@ -38,6 +40,7 @@ public sealed class UnitOrganizationsController(UserManagementService service,
     public async Task<IActionResult> CreateAsync([FromBody] CreateUnitOrganizationRequest request,
         CancellationToken cancellationToken)
     {
+        await authorizer.RequireSuperAdminAsync(request.TenantId, VerifiedAdminIdentity.Oid(User, request.TenantId), cancellationToken);
         UnitOrganizationInfo organization = await service.CreateUnitOrganizationAsync(request, cancellationToken);
         logger.LogInformation("Administrator {Actor} created organization {UnitOrganizationId}; trace {TraceId}",
             HttpContext.Items["UserManagementActor"], organization.Id, HttpContext.TraceIdentifier);
@@ -47,8 +50,17 @@ public sealed class UnitOrganizationsController(UserManagementService service,
 
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<UnitOrganizationInfo>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetAllAsync([FromQuery] string tenantId, CancellationToken cancellationToken) =>
-        Ok(await service.GetUnitOrganizationsAsync(tenantId, cancellationToken));
+    public async Task<IActionResult> GetAllAsync([FromQuery] string tenantId, CancellationToken cancellationToken)
+    {
+        AdminAccessInfo access = await authorizer.GetAccessAsync(tenantId, VerifiedAdminIdentity.Oid(User, tenantId),
+            cancellationToken);
+        if (!access.IsActive || !access.IsSuperAdmin && access.ManagedUnitOrganizationIds.Count == 0)
+            throw new UnauthorizedAccessException("Actor cannot list organizations.");
+        IReadOnlyList<UnitOrganizationInfo> organizations = await service.GetUnitOrganizationsAsync(tenantId,
+            cancellationToken);
+        return Ok(access.IsSuperAdmin ? organizations : organizations.Where(value =>
+            access.ManagedUnitOrganizationIds.Contains(value.Id)).ToArray());
+    }
 
     [HttpGet("{id:guid}")]
     [ProducesResponseType(typeof(UnitOrganizationInfo), StatusCodes.Status200OK)]
@@ -56,6 +68,7 @@ public sealed class UnitOrganizationsController(UserManagementService service,
     public async Task<IActionResult> GetAsync(Guid id, [FromQuery] string tenantId,
         CancellationToken cancellationToken)
     {
+        await authorizer.RequireAdminAsync(tenantId, VerifiedAdminIdentity.Oid(User, tenantId), id, cancellationToken);
         UnitOrganizationInfo? organization = await service.GetUnitOrganizationAsync(tenantId, id, cancellationToken);
         return organization is null ? NotFound() : Ok(organization);
     }
@@ -66,6 +79,7 @@ public sealed class UnitOrganizationsController(UserManagementService service,
     public async Task<IActionResult> UpdateAsync(Guid id, [FromQuery] string tenantId,
         [FromBody] UpdateUnitOrganizationRequest request, CancellationToken cancellationToken)
     {
+        await authorizer.RequireSuperAdminAsync(tenantId, VerifiedAdminIdentity.Oid(User, tenantId), cancellationToken);
         UnitOrganizationInfo? organization = await service.UpdateUnitOrganizationAsync(tenantId, id, request,
             cancellationToken);
         logger.LogInformation("Administrator {Actor} updated organization {UnitOrganizationId}; found {Found}; trace {TraceId}",
@@ -79,6 +93,7 @@ public sealed class UnitOrganizationsController(UserManagementService service,
     public async Task<IActionResult> DeleteAsync(Guid id, [FromQuery] string tenantId,
         CancellationToken cancellationToken)
     {
+        await authorizer.RequireSuperAdminAsync(tenantId, VerifiedAdminIdentity.Oid(User, tenantId), cancellationToken);
         bool deleted = await service.DeleteUnitOrganizationAsync(tenantId, id, cancellationToken);
         logger.LogInformation("Administrator {Actor} deleted organization {UnitOrganizationId}; deleted {Deleted}; trace {TraceId}",
             HttpContext.Items["UserManagementActor"], id, deleted, HttpContext.TraceIdentifier);

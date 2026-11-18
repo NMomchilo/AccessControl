@@ -1,5 +1,7 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -8,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using UserManagement.Application;
 using UserManagement.Contracts;
 using UserManagement.Infrastructure.Database;
 
@@ -21,11 +24,61 @@ public sealed class UserManagementApiTests
     private static readonly Guid OrganizationId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
     [Fact]
+    public async Task ResolveUnknownUserReturnsNotFoundWithoutProvisioningAsync()
+    {
+        await using ApiFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+        await factory.InitializeAsync();
+        using HttpRequestMessage resolve = ResolveRequest(ClientKey);
+        using HttpResponseMessage resolved = await client.SendAsync(resolve);
+        Assert.Equal(HttpStatusCode.NotFound, resolved.StatusCode);
+        using IServiceScope scope = factory.Services.CreateScope();
+        UserManagementDbContext db = scope.ServiceProvider.GetRequiredService<UserManagementDbContext>();
+        Assert.Empty(await db.Users.ToListAsync());
+        Assert.Empty(await db.UnitOrganizations.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CreateUser_WithExistingRoleIds_ResolvesAssignedRoleAsync()
+    {
+        await using ApiFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+        await factory.InitializeAsync();
+        using (IServiceScope scope = factory.Services.CreateScope())
+            await scope.ServiceProvider.GetRequiredService<UserManagementService>()
+                .CreateUnitOrganizationAsync(new(OrganizationId, "default", "Alpha"), default);
+        using HttpResponseMessage createdRole = await SendAdminAsync(client, HttpMethod.Post, "/v1/roles",
+            new CreateRoleRequest("default", OrganizationId, "reader", "Reader"));
+        Assert.Equal(HttpStatusCode.Created, createdRole.StatusCode);
+        RoleInfo role = (await createdRole.Content.ReadFromJsonAsync<RoleInfo>())!;
+
+        using HttpResponseMessage createdUser = await SendAdminAsync(client, HttpMethod.Post,
+            $"/v1/users/{Oid}?tenantId=default&unitOrganizationId={OrganizationId:D}",
+            new CreateUserRequest("User", "user@example.com", [role.RoleId]));
+        Assert.Equal(HttpStatusCode.Created, createdUser.StatusCode);
+        using HttpResponseMessage resolved = await SendClientAsync(client, HttpMethod.Post, "/v1/users/resolve",
+            new UserIdentityRequest("default", OrganizationId, Oid));
+        Assert.Equal(HttpStatusCode.OK, resolved.StatusCode);
+        Assert.Equal(role.RoleId,
+            (await resolved.Content.ReadFromJsonAsync<UserIdentityResponse>())!.Roles.Single().RoleId);
+
+        string rejectedOid = Guid.NewGuid().ToString("D");
+        using HttpResponseMessage rejected = await SendAdminAsync(client, HttpMethod.Post,
+            $"/v1/users/{rejectedOid}?tenantId=default&unitOrganizationId={OrganizationId:D}",
+            new CreateUserRequest("Rejected", null, [Guid.NewGuid()]));
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        using IServiceScope verification = factory.Services.CreateScope();
+        Assert.False(await verification.ServiceProvider.GetRequiredService<UserManagementDbContext>()
+            .Users.AnyAsync(user => user.ObjectId == rejectedOid));
+    }
+
+    [Fact]
     public async Task ResolveAndAdministration_EnforceCredentialScopesAndUpdateRolesAsync()
     {
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
         await factory.InitializeAsync();
+        await factory.ProvisionAsync("default", OrganizationId, "Alpha", Oid, "user@example.com");
 
         using HttpRequestMessage denied = ResolveRequest(AdminKey);
         using HttpResponseMessage deniedResponse = await client.SendAsync(denied);
@@ -38,7 +91,7 @@ public sealed class UserManagementApiTests
         string resolveJson = await resolvedResponse.Content.ReadAsStringAsync();
         Assert.Contains("\"unitOrganizationId\"", resolveJson);
         Assert.DoesNotContain("\"userOrganizationId\"", resolveJson);
-        Assert.Equal("reviewer", first?.Roles.Single().Code);
+        Assert.Empty(first!.Roles);
         using HttpRequestMessage createRole = new(HttpMethod.Post, "/v1/roles")
         {
             Content = JsonContent.Create(new CreateRoleRequest("default", OrganizationId, "admin", "Administrator"))
@@ -145,13 +198,13 @@ public sealed class UserManagementApiTests
 
         using HttpRequestMessage deletedResolve = new(HttpMethod.Post, "/v1/users/resolve")
         {
-            Content = JsonContent.Create(new UserIdentityRequest("default", emptyOrganizationId,
-                "Reused", Oid, null, null))
+            Content = JsonContent.Create(new UserIdentityRequest("default", emptyOrganizationId, Oid))
         };
         deletedResolve.Headers.Add("X-User-Management-Key", ClientKey);
         using HttpResponseMessage deletedResolveResponse = await client.SendAsync(deletedResolve);
-        Assert.Equal(HttpStatusCode.Conflict, deletedResolveResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, deletedResolveResponse.StatusCode);
 
+        await factory.ProvisionAsync("default", OrganizationId, "Alpha", Oid);
         using HttpRequestMessage resolve = ResolveRequest(ClientKey);
         using HttpResponseMessage resolved = await client.SendAsync(resolve);
         Assert.Equal(HttpStatusCode.OK, resolved.StatusCode);
@@ -162,7 +215,7 @@ public sealed class UserManagementApiTests
         Assert.Equal(HttpStatusCode.NoContent, deletedReferenced.StatusCode);
         using HttpRequestMessage cannotResolve = ResolveRequest(ClientKey);
         using HttpResponseMessage cannotResolveResponse = await client.SendAsync(cannotResolve);
-        Assert.Equal(HttpStatusCode.Conflict, cannotResolveResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, cannotResolveResponse.StatusCode);
     }
 
     [Fact]
@@ -221,7 +274,7 @@ public sealed class UserManagementApiTests
             new ReplaceRolesRequest([Guid.Empty]));
         Assert.Equal(HttpStatusCode.BadRequest, invalidRole.StatusCode);
         using HttpResponseMessage invalidResolve = await SendClientAsync(client, HttpMethod.Post,
-            "/v1/users/resolve", new UserIdentityRequest("default", Guid.Empty, "Alpha", Oid, null, null));
+            "/v1/users/resolve", new UserIdentityRequest("default", Guid.Empty, Oid));
         Assert.Equal(HttpStatusCode.BadRequest, invalidResolve.StatusCode);
     }
 
@@ -253,17 +306,19 @@ public sealed class UserManagementApiTests
             .Select(value => new Guid(value, 0, 0, new byte[8]).ToString("D")).ToArray();
         foreach (string oid in oids)
         {
+            await factory.ProvisionAsync("default", OrganizationId, "Alpha", oid, $"{oid}@example.com");
             using HttpResponseMessage resolved = await SendClientAsync(client, HttpMethod.Post, "/v1/users/resolve",
-                new UserIdentityRequest("default", OrganizationId, "Alpha", oid, $"{oid}@example.com", oid));
+                new UserIdentityRequest("default", OrganizationId, oid));
             Assert.Equal(HttpStatusCode.OK, resolved.StatusCode);
         }
+        await factory.ProvisionAsync("default", secondOrganizationId, "Beta", oids[1]);
         using (HttpResponseMessage secondMembership = await SendClientAsync(client, HttpMethod.Post,
-            "/v1/users/resolve", new UserIdentityRequest("default", secondOrganizationId,
-                "Beta", oids[1], null, null)))
+            "/v1/users/resolve", new UserIdentityRequest("default", secondOrganizationId, oids[1])))
             Assert.Equal(HttpStatusCode.OK, secondMembership.StatusCode);
+        string otherTenantOid = Guid.NewGuid().ToString("D");
+        await factory.ProvisionAsync("other", otherTenantOrganizationId, "Other", otherTenantOid);
         using (HttpResponseMessage otherTenantUser = await SendClientAsync(client, HttpMethod.Post,
-            "/v1/users/resolve", new UserIdentityRequest("other", otherTenantOrganizationId,
-                "Other", Guid.NewGuid().ToString("D"), null, null)))
+            "/v1/users/resolve", new UserIdentityRequest("other", otherTenantOrganizationId, otherTenantOid)))
             Assert.Equal(HttpStatusCode.OK, otherTenantUser.StatusCode);
         using (HttpResponseMessage disabled = await SendAdminAsync(client, HttpMethod.Put,
             $"/v1/users/{oids[2]}/active?tenantId=default", new SetActiveRequest(false)))
@@ -271,6 +326,12 @@ public sealed class UserManagementApiTests
         using (HttpResponseMessage extraRole = await SendAdminAsync(client, HttpMethod.Post, "/v1/roles",
             new CreateRoleRequest("default", OrganizationId, "manager", "Manager")))
             Assert.Equal(HttpStatusCode.Created, extraRole.StatusCode);
+        using (HttpResponseMessage secondRole = await SendAdminAsync(client, HttpMethod.Post, "/v1/roles",
+            new CreateRoleRequest("default", OrganizationId, "auditor", "Auditor")))
+            Assert.Equal(HttpStatusCode.Created, secondRole.StatusCode);
+        using (HttpResponseMessage thirdRole = await SendAdminAsync(client, HttpMethod.Post, "/v1/roles",
+            new CreateRoleRequest("default", secondOrganizationId, "observer", "Observer")))
+            Assert.Equal(HttpStatusCode.Created, thirdRole.StatusCode);
 
         using HttpResponseMessage usersPage1 = await SendAdminAsync(client, HttpMethod.Get,
             "/v1/users?tenantId=default&page=1&pageSize=2");
@@ -370,6 +431,15 @@ public sealed class UserManagementApiTests
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
         await factory.InitializeAsync();
+        await factory.ProvisionAsync("default", OrganizationId, "Alpha", Oid);
+        using HttpResponseMessage createdRole = await SendAdminAsync(client, HttpMethod.Post, "/v1/roles",
+            new CreateRoleRequest("default", OrganizationId, "reader", "Reader"));
+        RoleInfo role = (await createdRole.Content.ReadFromJsonAsync<RoleInfo>())!;
+        Assert.Equal(HttpStatusCode.Created, createdRole.StatusCode);
+        using HttpResponseMessage assignedRole = await SendAdminAsync(client, HttpMethod.Put,
+            $"/v1/users/{Oid}/roles?tenantId=default&unitOrganizationId={OrganizationId:D}",
+            new ReplaceRolesRequest([role.RoleId]));
+        Assert.Equal(HttpStatusCode.NoContent, assignedRole.StatusCode);
         using HttpRequestMessage firstRequest = ResolveRequest(ClientKey);
         using HttpResponseMessage firstResponse = await client.SendAsync(firstRequest);
         UserIdentityResponse first = (await firstResponse.Content.ReadFromJsonAsync<UserIdentityResponse>())!;
@@ -413,8 +483,7 @@ public sealed class UserManagementApiTests
     {
         HttpRequestMessage request = new(HttpMethod.Post, "/v1/users/resolve")
         {
-            Content = JsonContent.Create(new UserIdentityRequest("default", OrganizationId, "Alpha", Oid,
-                "user@example.com", "Example User"))
+            Content = JsonContent.Create(new UserIdentityRequest("default", OrganizationId, Oid))
         };
         request.Headers.Add("X-User-Management-Key", key);
         return request;
@@ -433,12 +502,34 @@ public sealed class UserManagementApiTests
     {
         private readonly SqliteConnection _connection = new("Data Source=:memory:");
 
+        protected override void ConfigureClient(HttpClient client)
+        {
+            base.ConfigureClient(client);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-admin-token");
+        }
+
         public async Task InitializeAsync()
         {
             await _connection.OpenAsync();
             using IServiceScope scope = Services.CreateScope();
             UserManagementDbContext db = scope.ServiceProvider.GetRequiredService<UserManagementDbContext>();
             await db.Database.EnsureCreatedAsync();
+        }
+
+        public async Task ProvisionAsync(string tenant, Guid organizationId, string organizationName,
+            string oid, string? email = null)
+        {
+            using IServiceScope scope = Services.CreateScope();
+            UserManagementDbContext db = scope.ServiceProvider.GetRequiredService<UserManagementDbContext>();
+            UserManagementService service = scope.ServiceProvider.GetRequiredService<UserManagementService>();
+            if (!await db.UnitOrganizations.AnyAsync(value => value.TenantId == tenant && value.Id == organizationId))
+                await service.CreateUnitOrganizationAsync(new(organizationId, tenant, organizationName), default);
+            if (!await db.Users.AnyAsync(value => value.TenantId == tenant && value.ObjectId == oid))
+                Assert.True(await service.CreateUserInOrganizationAsync(tenant, organizationId, oid,
+                    oid, email, default));
+            else if (!await db.UnitOrganizationMemberships.AnyAsync(value => value.TenantId == tenant &&
+                         value.UnitOrganizationId == organizationId && value.User.ObjectId == oid))
+                Assert.True(await service.AssignMembershipAsync(tenant, organizationId, oid, default));
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -449,11 +540,18 @@ public sealed class UserManagementApiTests
             builder.UseSetting("UserManagementKeys:Clients:0:Key", ClientKey);
             builder.UseSetting("UserManagementKeys:Administrators:0:ActorId", "operator");
             builder.UseSetting("UserManagementKeys:Administrators:0:Key", AdminKey);
+            builder.UseSetting("UserManagementKeys:AdminLookupKey", new string('l', 40));
+            builder.UseSetting("EntraAdmin:Authority", "https://login.microsoftonline.com/test-tenant");
+            builder.UseSetting("EntraAdmin:Audience", "api://test-admin");
             builder.ConfigureTestServices(services =>
             {
+                services.AddAuthentication(options => options.DefaultAuthenticateScheme = "TestEntra")
+                    .AddScheme<AuthenticationSchemeOptions, TestEntraAuthenticationHandler>("TestEntra", _ => { });
+                services.AddScoped<IUserManagementAdminAuthorizer, PermissiveAdminAuthorizer>();
                 services.RemoveAll<DbContextOptions<UserManagementDbContext>>();
                 services.RemoveAll<IDbContextOptionsConfiguration<UserManagementDbContext>>();
                 services.RemoveAll<UserManagementDbContext>();
+                services.AddSingleton<Common.Persistence.ICurrentActorProvider>(TestActorProvider.Instance);
                 services.AddDbContext<UserManagementDbContext>(options => options.UseSqlite(_connection));
             });
         }
@@ -463,5 +561,15 @@ public sealed class UserManagementApiTests
             await base.DisposeAsync();
             await _connection.DisposeAsync();
         }
+    }
+
+    private sealed class PermissiveAdminAuthorizer : IUserManagementAdminAuthorizer
+    {
+        public Task RequireAdminAsync(string tenantId, string actorOid, Guid unitOrganizationId,
+            CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task RequireSuperAdminAsync(string tenantId, string actorOid,
+            CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<AdminAccessInfo> GetAccessAsync(string tenantId, string actorOid,
+            CancellationToken cancellationToken) => Task.FromResult(new AdminAccessInfo(true, true, [], true));
     }
 }

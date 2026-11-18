@@ -1,3 +1,4 @@
+using Common.Persistence;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Runtime.InteropServices;
@@ -11,8 +12,7 @@ using UserManagement.Contracts;
 using UserManagement.Infrastructure.Database;
 
 const string oid = "9155ff4d-2708-4770-b87e-e238645ec5df";
-UserIdentityRequest request = new("default", Guid.Parse("33333333-3333-3333-3333-333333333333"),
-    "Benchmark Organization", oid, "benchmark@example.com", "Benchmark User");
+UserIdentityRequest request = new("default", Guid.Parse("33333333-3333-3333-3333-333333333333"), oid);
 int count = 5000;
 int concurrency = 16;
 string database = "sqlite";
@@ -56,7 +56,7 @@ if (remoteUrl is not null)
         ?? throw new ArgumentException("Set UserManagementBenchmark__ClientKey for remote mode.");
     http.BaseAddress = new Uri(remoteUrl.TrimEnd('/') + "/", UriKind.Absolute);
     source = new RemoteClient(http, key);
-    sourceLabel = "HTTP service lookup";
+    sourceLabel = "HTTP user resolution";
 }
 else
 {
@@ -76,7 +76,7 @@ else
     }
 
     DbContextOptions<UserManagementDbContext> dbOptions = dbOptionsBuilder.Options;
-    await using (UserManagementDbContext db = new(dbOptions))
+    await using (UserManagementDbContext db = new(dbOptions, new BenchmarkActorProvider()))
     {
         if (database == "sqlite")
         {
@@ -88,12 +88,24 @@ else
         }
 
         SqlUserStore store = new(db, NullLogger<SqlUserStore>.Instance);
-        await store.ResolveAsync(request.TenantId, request.UnitOrganizationId, request.UnitOrganizationName,
-            request.ObjectId, request.Email, request.DisplayName, CancellationToken.None);
+        if (await store.GetUnitOrganizationAsync(request.TenantId, request.UnitOrganizationId,
+                CancellationToken.None) is null)
+            await store.CreateUnitOrganizationAsync(request.TenantId, request.UnitOrganizationId,
+                "Benchmark Organization", CancellationToken.None);
+        var existingUser = await store.GetAsync(request.TenantId, request.UnitOrganizationId,
+            request.ObjectId, CancellationToken.None);
+        if (existingUser is null)
+        {
+            bool created = await store.CreateUserInOrganizationAsync(request.TenantId, request.UnitOrganizationId,
+                request.ObjectId, "Benchmark User", "benchmark@example.com", CancellationToken.None);
+            if (!created && !await store.AssignMembershipAsync(request.TenantId, request.UnitOrganizationId,
+                    request.ObjectId, CancellationToken.None))
+                throw new InvalidOperationException("Could not provision the benchmark user.");
+        }
     }
 
     source = new StoreClient(dbOptions);
-    sourceLabel = $"{database} lookup per request";
+    sourceLabel = $"{database} user resolution per request";
 }
 
 using UserResolutionCache cached = new(source,
@@ -139,7 +151,8 @@ static async Task<BenchmarkResult> MeasureAsync(string scenario, IUserManagement
 
             long started = Stopwatch.GetTimestamp();
             UserIdentityResponse response = await client.ResolveAsync(request, CancellationToken.None);
-            if (!response.IsActive || !response.Roles.Any(role => role.Code == "reviewer" && role.RoleId != Guid.Empty))
+            if (!response.IsActive || response.UnitOrganizationId != request.UnitOrganizationId ||
+                response.UserId == Guid.Empty)
             {
                 throw new InvalidOperationException("Benchmark user resolution failed.");
             }
@@ -171,9 +184,9 @@ internal sealed class StoreClient(DbContextOptions<UserManagementDbContext> opti
         Interlocked.Increment(ref _calls);
         await using UserManagementDbContext db = new(options);
         SqlUserStore store = new(db, NullLogger<SqlUserStore>.Instance);
-        UserManagement.Domain.ManagedUser user = await store.ResolveAsync(request.TenantId,
-            request.UnitOrganizationId, request.UnitOrganizationName, request.ObjectId,
-            request.Email, request.DisplayName, cancellationToken);
+        UserManagement.Domain.ManagedUser user = await store.GetAsync(request.TenantId,
+            request.UnitOrganizationId, request.ObjectId, cancellationToken)
+            ?? throw new InvalidOperationException("Benchmark user must be provisioned before measurement.");
         return new UserIdentityResponse(user.Id, user.TenantId, user.UnitOrganizationId,
             user.UnitOrganizationName, user.IsActive,
             user.Roles.Select(role => new UserRoleInfo(role.Id, role.Code, role.DisplayName)).ToArray());
@@ -204,3 +217,8 @@ internal sealed record BenchmarkResult(string Scenario, double RequestsPerSecond
     double P50Ms, double P95Ms, int SourceCalls);
 internal sealed record BenchmarkReport(DateTimeOffset TimestampUtc, string Runtime, string Os,
     int Requests, int Concurrency, IReadOnlyList<BenchmarkResult> Results);
+
+file sealed class BenchmarkActorProvider : ICurrentActorProvider
+{
+    public string ActorId => "benchmark-setup";
+}

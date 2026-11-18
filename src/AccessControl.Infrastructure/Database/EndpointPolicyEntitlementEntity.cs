@@ -1,9 +1,10 @@
+using Common.Persistence;
+
 namespace AccessControl.Infrastructure.Database;
 
-public sealed class EndpointPolicyEntitlementEntity
+public sealed class EndpointPolicyEntitlementEntity : GeneralEntityBase
 {
-    public long Id { get; set; }
-    public long EndpointPolicyId { get; set; }
+    public Guid EndpointPolicyId { get; set; }
     public string TenantId { get; set; } = string.Empty;
     public Guid UnitOrganizationId { get; set; }
     public Guid EntitlementId { get; set; }

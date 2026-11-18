@@ -1,3 +1,4 @@
+using Common.Persistence;
 using AccessControl.Application;
 using AccessControl.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -5,17 +6,18 @@ using Microsoft.Extensions.Logging;
 
 namespace AccessControl.Infrastructure.Database;
 
-public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILogger<SqlAuthorizationStore> logger) : IAuthorizationStore
+public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILogger<SqlAuthorizationStore> logger)
+    : IAuthorizationStore
 {
     public Task<long> GetRevisionAsync(CancellationToken cancellationToken) =>
-        dbContext.AuthorizationRevisions.AsNoTracking().Where(x => x.Id == 1)
+        dbContext.AuthorizationRevisions.AsNoTracking().Where(x => x.Id == AuthorizationRevisionEntity.SingletonId)
             .Select(x => x.Version).SingleAsync(cancellationToken);
 
     public async Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
     {
         EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.AsNoTracking()
             .Include(x => x.RequiredEntitlements)
-            .SingleOrDefaultAsync(x => x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
+            .SingleOrDefaultAsync(x => !x.IsDeleted && x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
                 x.HttpMethod == httpMethod && x.RouteTemplate == routeTemplate, cancellationToken);
         logger.LogDebug("Loaded endpoint policy for {TenantId} {Module} {HttpMethod} {RouteTemplate}: {Found}",
             tenantId, module, httpMethod, routeTemplate, entity is not null);
@@ -50,7 +52,8 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
 
     public async Task UpsertPolicyAsync(EndpointPolicy policy, CancellationToken cancellationToken)
     {
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = dbContext.Database.CurrentTransaction is null
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
         await ValidateActiveEntitlementsAsync(policy.TenantId, policy.UnitOrganizationId,
             policy.RequiredEntitlementIds, cancellationToken);
         EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.SingleOrDefaultAsync(x =>
@@ -75,6 +78,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         else
         {
             entity.IsPublic = policy.IsPublic;
+            entity.IsDeleted = false;
             await dbContext.EndpointPolicyEntitlements.Where(x => x.EndpointPolicyId == entity.Id)
                 .ExecuteDeleteAsync(cancellationToken);
             logger.LogDebug("Replacing entitlements on endpoint policy row {PolicyId}", entity.Id);
@@ -93,25 +97,34 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await IncrementRevisionAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         logger.LogInformation("Stored endpoint policy {TenantId} {Module} {HttpMethod} {RouteTemplate}; public {IsPublic}, entitlement count {Count}",
             policy.TenantId, policy.Module, policy.HttpMethod, policy.RouteTemplate, policy.IsPublic, policy.RequiredEntitlementIds.Count);
     }
 
     public async Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
     {
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
-        int deleted = await dbContext.EndpointPolicies.Where(x => x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
-            x.HttpMethod == httpMethod && x.RouteTemplate == routeTemplate).ExecuteDeleteAsync(cancellationToken);
+        await using var transaction = dbContext.Database.CurrentTransaction is null
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.SingleOrDefaultAsync(x =>
+            x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
+            x.HttpMethod == httpMethod && x.RouteTemplate == routeTemplate, cancellationToken);
+        int deleted = entity is { IsDeleted: false } ? 1 : 0;
+        if (entity is not null)
+        {
+            entity.IsDeleted = true;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
         await IncrementRevisionAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         logger.LogInformation("Deleted {Count} endpoint policy rows for {TenantId} {Module} {HttpMethod} {RouteTemplate}",
             deleted, tenantId, module, httpMethod, routeTemplate);
     }
 
     public async Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<Guid> entitlementIds, CancellationToken cancellationToken)
     {
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        await using var transaction = dbContext.Database.CurrentTransaction is null
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
         await ValidateActiveEntitlementsAsync(tenantId, unitOrganizationId, entitlementIds, cancellationToken);
         int deleted = await dbContext.RoleEntitlements.Where(x => x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.RoleId == roleId)
             .ExecuteDeleteAsync(cancellationToken);
@@ -129,7 +142,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await IncrementRevisionAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         logger.LogInformation("Replaced role entitlements for {TenantId} {RoleId}: removed {RemovedCount}, stored {StoredCount}",
             tenantId, roleId, deleted, entitlementIds.Count);
     }
@@ -148,8 +161,12 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
 
     private async Task IncrementRevisionAsync(CancellationToken cancellationToken)
     {
-        int changed = await dbContext.AuthorizationRevisions.Where(x => x.Id == 1)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Version, x => x.Version + 1), cancellationToken);
+        DateTime now = DateTime.UtcNow;
+        string actor = dbContext.RequiredActorId;
+        int changed = await dbContext.AuthorizationRevisions.Where(x => x.Id == AuthorizationRevisionEntity.SingletonId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.Version, x => x.Version + 1)
+                .SetProperty(x => x.LastUpdateUser, actor)
+                .SetProperty(x => x.LastUpdateTime, now), cancellationToken);
         if (changed != 1)
         {
             throw new InvalidOperationException("Authorization revision row is missing. Apply the latest database migration.");

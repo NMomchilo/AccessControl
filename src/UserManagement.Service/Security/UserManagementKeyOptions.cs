@@ -5,6 +5,7 @@ public sealed class UserManagementKeyOptions
     public const string SectionName = "UserManagementKeys";
     public List<ServiceCredential> Clients { get; set; } = [];
     public List<AdministratorCredential> Administrators { get; set; } = [];
+    public string AdminLookupKey { get; set; } = string.Empty;
 
     public static bool IsValid(UserManagementKeyOptions options)
     {
@@ -15,7 +16,8 @@ public sealed class UserManagementKeyOptions
         }
 
         string[] keys = options.Clients.Select(value => value.Key)
-            .Concat(options.Administrators.Select(value => value.Key)).ToArray();
+            .Concat(options.Administrators.Select(value => value.Key))
+            .Append(options.AdminLookupKey).ToArray();
         return options.Clients.All(value => !string.IsNullOrWhiteSpace(value.ClientId)) &&
             options.Administrators.All(value => !string.IsNullOrWhiteSpace(value.ActorId)) &&
             keys.All(value => !string.IsNullOrWhiteSpace(value) && value.Length >= 32) &&

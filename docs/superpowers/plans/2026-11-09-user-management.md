@@ -1,5 +1,7 @@
 # User Management Service and Client Implementation Plan
 
+Historical plan: automatic first sign-in provisioning and default Reviewer assignment have been removed. Current requests only resolve existing data.
+
 **Goal:** Provision Entra users by `oid`, assign `Reviewer` on first sign-in, add current application roles to the consuming request, and provide bounded role caching with benchmarks.
 
 **Architecture:** The consuming service validates the Entra JWT, then UserManagement.Client calls UserManagement.Service using a service credential. The service owns its SQL Server database and role administration. The client caches resolution responses for no longer than five seconds and adds a dedicated role claim before AccessControl.Client evaluates the endpoint.

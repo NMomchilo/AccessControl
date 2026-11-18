@@ -34,7 +34,8 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
 
         if (string.IsNullOrWhiteSpace(request.TenantId) || string.IsNullOrWhiteSpace(request.Module) ||
             string.IsNullOrWhiteSpace(request.HttpMethod) || string.IsNullOrWhiteSpace(request.RouteTemplate) ||
-            request.RoleIds is null || request.RoleIds.Count > 16 || request.RoleIds.Any(id => id == Guid.Empty))
+            (request.SubjectId is not null &&
+                (!Guid.TryParse(request.SubjectId, out Guid parsedSubject) || parsedSubject == Guid.Empty)))
         {
             logger.LogWarning("Rejected invalid decision request");
             return new DecisionResponse(false, "Invalid authorization request");
@@ -52,8 +53,8 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
             return new DecisionResponse(false, "Invalid authorization request");
         }
 
-        logger.LogDebug("Evaluating endpoint {TenantId} {UnitOrganizationId} {Module} {HttpMethod} {RouteTemplate} with {RoleCount} roles",
-            key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate, request.RoleIds.Count);
+        logger.LogDebug("Evaluating endpoint {TenantId} {UnitOrganizationId} {Module} {HttpMethod} {RouteTemplate}",
+            key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate);
         EndpointPolicy? policy = await store.GetPolicyAsync(key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate, cancellationToken);
         if (policy is null && key.UnitOrganizationId != Guid.Empty)
         {
@@ -89,6 +90,8 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
             return new DecisionResponse(false, "Unit organization required");
         }
 
+        if (request.RoleIds is null || request.RoleIds.Count > 16 || request.RoleIds.Any(id => id == Guid.Empty))
+            return new DecisionResponse(false, "Invalid role IDs");
         Guid[] roleIds = request.RoleIds.Distinct().ToArray();
         IReadOnlySet<Guid> entitlements = await store.GetEntitlementsAsync(key.TenantId, key.UnitOrganizationId, roleIds, cancellationToken);
         bool permit = policy.RequiredEntitlementIds.Any(entitlements.Contains);

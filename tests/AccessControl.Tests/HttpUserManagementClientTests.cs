@@ -20,11 +20,11 @@ public sealed class HttpUserManagementClientTests
                 ServiceUrl = "https://user-management.example/",
                 ApiKey = "test-client-key"
             }), NullLogger<HttpUserManagementClient>.Instance);
-        UserIdentityRequest request = new("default", OrganizationId, "Alpha", "9155ff4d-2708-4770-b87e-e238645ec5df", "user@example.com", "User");
+        UserIdentityRequest request = new("default", OrganizationId, "9155ff4d-2708-4770-b87e-e238645ec5df");
 
         UserIdentityResponse response = await sut.ResolveAsync(request, CancellationToken.None);
 
-        Assert.Equal("reviewer", response.Roles.Single().Code);
+        Assert.Equal("reader", response.Roles.Single().Code);
         Assert.Equal(HttpMethod.Post, handler.Method);
         Assert.Equal("/v1/users/resolve", handler.Path);
         Assert.Equal(request.ObjectId, handler.ObjectId);
@@ -59,9 +59,21 @@ public sealed class HttpUserManagementClientTests
             {
                 ServiceUrl = "https://user-management.example/", ApiKey = "test-client-key"
             }), NullLogger<HttpUserManagementClient>.Instance);
-        UserIdentityRequest request = new("default", OrganizationId, "Alpha",
-            "9155ff4d-2708-4770-b87e-e238645ec5df", null, null);
+        UserIdentityRequest request = new("default", OrganizationId, "9155ff4d-2708-4770-b87e-e238645ec5df");
         await Assert.ThrowsAsync<UnitOrganizationAccessException>(() =>
+            sut.ResolveAsync(request, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ResolveAsync_UnknownUser_ReportsNotProvisionedAsync()
+    {
+        RecordingHandler handler = new() { ForceNotFound = true };
+        HttpUserManagementClient sut = new(new SingleClientFactory(handler),
+            Options.Create(new UserManagementClientOptions
+            { ServiceUrl = "https://user-management.example/", ApiKey = "test-client-key" }),
+            NullLogger<HttpUserManagementClient>.Instance);
+        UserIdentityRequest request = new("default", OrganizationId, "9155ff4d-2708-4770-b87e-e238645ec5df");
+        await Assert.ThrowsAsync<UserNotProvisionedException>(() =>
             sut.ResolveAsync(request, CancellationToken.None));
     }
 
@@ -77,6 +89,7 @@ public sealed class HttpUserManagementClientTests
         public string? Key { get; private set; }
         public string? ObjectId { get; private set; }
         public bool ForceConflict { get; set; }
+        public bool ForceNotFound { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -85,6 +98,7 @@ public sealed class HttpUserManagementClientTests
             Path = request.RequestUri?.AbsolutePath;
             Key = request.Headers.GetValues("X-User-Management-Key").Single();
             if (ForceConflict) return new HttpResponseMessage(HttpStatusCode.Conflict);
+            if (ForceNotFound) return new HttpResponseMessage(HttpStatusCode.NotFound);
             if (request.Method == HttpMethod.Get)
             {
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(7L) };
@@ -95,8 +109,8 @@ public sealed class HttpUserManagementClientTests
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new UserIdentityResponse(Guid.NewGuid(), body!.TenantId,
-                    body.UnitOrganizationId, body.UnitOrganizationName, true,
-                    [new UserRoleInfo(Guid.Parse("22222222-2222-2222-2222-222222222222"), "reviewer", "Reviewer")]))
+                    body.UnitOrganizationId, "Alpha", true,
+                    [new UserRoleInfo(Guid.Parse("22222222-2222-2222-2222-222222222222"), "reader", "Reader")]))
             };
         }
     }

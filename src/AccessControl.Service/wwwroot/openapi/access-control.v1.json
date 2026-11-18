@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Access Control Service API",
-    "version": "5.2.0",
-    "description": "Tenant and unit-organization scoped endpoint decisions and administration."
+    "version": "6.0.0",
+    "description": "Tenant and unit-organization scoped endpoint decisions and administrator management. Administrator requests require an API key, signed actor bearer token, and current User Management scope. Database writes require a validated actor ID; a missing actor causes the write to fail."
   },
   "servers": [
     {
@@ -68,11 +68,15 @@
           "Decisions"
         ],
         "summary": "Evaluate one endpoint request",
-        "description": "Returns HTTP 200 for permit and deny. The consuming API forwards a validated oid and role IDs supplied by User Management. This service trusts those assertions and does not validate the end-user JWT.",
+        "description": "For a protected policy, Access Control evaluates role IDs forwarded by the consuming API after User Management enrichment. Non-null subjectId requires a matching validated Entra bearer token and a scoped decision credential. Anonymous public decisions require the scoped credential only.",
         "operationId": "decideAccess",
         "security": [
           {
             "DecisionApiKey": []
+          },
+          {
+            "DecisionApiKey": [],
+            "DecisionEntraBearer": []
           }
         ],
         "requestBody": {
@@ -84,14 +88,14 @@
               },
               "example": {
                 "subjectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
-                "roleIds": [
-                  "b78650b4-c248-cab1-3d80-9a7c0dad7059"
-                ],
                 "module": "customers",
                 "httpMethod": "GET",
                 "routeTemplate": "/customers/{id}",
                 "tenantId": "default",
-                "unitOrganizationId": "33333333-3333-3333-3333-333333333333"
+                "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+                "roleIds": [
+                  "c4227c8a-16ef-eb3c-aedb-8197bf7f39c2"
+                ]
               }
             }
           }
@@ -138,30 +142,94 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "description": "Decision client is not allowed to assert the requested module, tenant, or unit organization."
+          },
+          "503": {
+            "description": "Decision service or persistence is unavailable."
           }
         }
       }
     },
     "/v1/policies/search": {
       "get": {
-        "tags": ["Policies"],
+        "tags": [
+          "Policies"
+        ],
         "summary": "Search endpoint policies",
-        "description": "Lists policies in one tenant. Optional filters narrow by unit organization, module, and HTTP method. The all-zero unit organization ID selects global public policies.",
+        "description": "Lists policies in one tenant. Optional filters narrow by unit organization, module, and HTTP method. The all-zero unit organization ID selects global public policies. SuperAdmin for a tenant-wide list or search; Admin for an assigned unit organization. Soft-deleted policies are excluded.",
         "operationId": "searchPolicies",
-        "security": [{ "AdminApiKey": [] }],
+        "security": [
+          {
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/TenantId" },
-          { "name": "unitOrganizationId", "in": "query", "required": false, "schema": { "type": "string", "format": "uuid" } },
-          { "name": "module", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 128 } },
-          { "name": "httpMethod", "in": "query", "required": false, "schema": { "type": "string", "maxLength": 16 } },
-          { "$ref": "#/components/parameters/Page" },
-          { "$ref": "#/components/parameters/PageSize" }
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "name": "unitOrganizationId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "module",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "httpMethod",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 16
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PageSize"
+          }
         ],
         "responses": {
-          "200": { "description": "Page of policies", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PolicyPageResponse" } } } },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "500": { "$ref": "#/components/responses/ServiceError" }
+          "200": {
+            "description": "Page of policies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyPageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
+          }
         }
       }
     },
@@ -174,7 +242,8 @@
         "operationId": "getPolicy",
         "security": [
           {
-            "AdminApiKey": []
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -216,19 +285,27 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
           }
-        }
+        },
+        "description": "Admin for the selected unit organization; SuperAdmin for a global public policy. Soft-deleted policies return 404."
       },
       "put": {
         "tags": [
           "Policies"
         ],
         "summary": "Create or replace an endpoint policy",
-        "description": "Protected policies require nonzero UO ID and entitlements. All-zero UO ID is reserved for a global public policy. A UO-specific policy takes precedence over the global public fallback.",
+        "description": "Protected policies require nonzero UO ID and entitlements. All-zero UO ID is reserved for a global public policy. A UO-specific policy takes precedence over the global public fallback. Admin for the selected unit organization; SuperAdmin for a global public policy. Upserting a soft-deleted key restores the policy.",
         "operationId": "upsertPolicy",
         "security": [
           {
-            "AdminApiKey": []
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "requestBody": {
@@ -279,6 +356,12 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
           }
         }
       },
@@ -286,11 +369,12 @@
         "tags": [
           "Policies"
         ],
-        "summary": "Delete an endpoint policy",
+        "summary": "Soft-delete an endpoint policy",
         "operationId": "deletePolicy",
         "security": [
           {
-            "AdminApiKey": []
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "requestBody": {
@@ -322,8 +406,15 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
           }
-        }
+        },
+        "description": "Admin for the selected unit organization; SuperAdmin for a global public policy. The row is retained but excluded from decisions and administrator reads; the revision advances to invalidate caches. A later PUT with the same key restores it."
       }
     },
     "/v1/roles/entitlements": {
@@ -335,7 +426,8 @@
         "operationId": "getRoleEntitlements",
         "security": [
           {
-            "AdminApiKey": []
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -368,19 +460,27 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
           }
-        }
+        },
+        "description": "Admin for the selected unit organization."
       },
       "put": {
         "tags": [
           "Role entitlements"
         ],
         "summary": "Replace all entitlements granted to a role",
-        "description": "Replace the full entitlement set for one tenant and role ID. [] revokes all grants. Use the role ID returned by User Management.",
+        "description": "Replace the full entitlement set for one tenant and role ID. [] revokes all grants. Use the role ID returned by User Management. Admin for the selected unit organization.",
         "operationId": "replaceRoleEntitlements",
         "security": [
           {
-            "AdminApiKey": []
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "requestBody": {
@@ -413,6 +513,12 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
           }
         }
       }
@@ -426,7 +532,8 @@
         "operationId": "listEntitlements",
         "security": [
           {
-            "AdminApiKey": []
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -440,7 +547,7 @@
             "$ref": "#/components/parameters/PageSize"
           }
         ],
-        "description": "Lists all registered entitlements, including inactive and unreferenced entries, ordered by unit organization ID, code, and entitlement ID.",
+        "description": "Lists all registered entitlements, including inactive and unreferenced entries, ordered by unit organization ID, code, and entitlement ID. SuperAdmin for a tenant-wide list or search; Admin for an assigned unit organization.",
         "responses": {
           "200": {
             "description": "Page of registered entitlements",
@@ -475,6 +582,12 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
           }
         }
       },
@@ -486,7 +599,8 @@
         "operationId": "createEntitlement",
         "security": [
           {
-            "AdminApiKey": []
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "requestBody": {
@@ -535,8 +649,15 @@
           },
           "409": {
             "description": "Code already exists in this tenant and unit organization"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
           }
-        }
+        },
+        "description": "Admin for the selected unit organization."
       }
     },
     "/v1/unit-organizations/{id}/entitlements": {
@@ -548,7 +669,8 @@
         "operationId": "listUnitOrganizationEntitlements",
         "security": [
           {
-            "AdminApiKey": []
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -565,7 +687,7 @@
             "$ref": "#/components/parameters/PageSize"
           }
         ],
-        "description": "Lists all registered entitlements, including inactive and unreferenced entries, ordered by unit organization ID, code, and entitlement ID.",
+        "description": "Lists all registered entitlements, including inactive and unreferenced entries, ordered by unit organization ID, code, and entitlement ID. Admin for the selected unit organization.",
         "responses": {
           "200": {
             "description": "Page of registered entitlements",
@@ -600,53 +722,120 @@
           },
           "500": {
             "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
           }
         }
       }
     },
     "/v1/entitlements/{id}": {
       "get": {
-        "tags": ["Administration"],
+        "tags": [
+          "Administration"
+        ],
         "summary": "Get an entitlement in one tenant and unit organization",
         "operationId": "getEntitlementById",
-        "security": [{ "AdminApiKey": [] }],
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
-          { "$ref": "#/components/parameters/TenantId" },
-          { "$ref": "#/components/parameters/UnitOrganizationId" }
+        "security": [
+          {
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
+          }
         ],
-        "responses": {
-          "200": { "description": "Entitlement", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementInfo" } } } },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "description": "Entitlement not found in the selected scope" },
-          "500": { "$ref": "#/components/responses/ServiceError" }
-        }
-      }
-    },
-    "/v1/entitlements/{id}/display-name": {
-      "put": {
-        "tags": ["Administration"],
-        "summary": "Change an entitlement's display name",
-        "description": "Changes only the human-readable name in the selected tenant and unit organization. The entitlement ID, code, status, grants, policies, and authorization revision remain unchanged.",
-        "operationId": "updateEntitlementDisplayName",
-        "security": [{ "AdminApiKey": [] }],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
-          { "$ref": "#/components/parameters/TenantId" },
-          { "$ref": "#/components/parameters/UnitOrganizationId" }
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/UnitOrganizationId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entitlement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Entitlement not found in the selected scope"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
+          }
+        },
+        "description": "Admin for the selected unit organization."
+      }
+    },
+    "/v1/entitlements/{id}/display-name": {
+      "put": {
+        "tags": [
+          "Administration"
+        ],
+        "summary": "Change an entitlement's display name",
+        "description": "Changes only the human-readable name in the selected tenant and unit organization. The entitlement ID, code, status, grants, policies, and authorization revision remain unchanged. Admin for the selected unit organization.",
+        "operationId": "updateEntitlementDisplayName",
+        "security": [
+          {
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/TenantId"
+          },
+          {
+            "$ref": "#/components/parameters/UnitOrganizationId"
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/UpdateEntitlementDisplayNameRequest" },
-              "example": { "displayName": "View customer records" }
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEntitlementDisplayNameRequest"
+              },
+              "example": {
+                "displayName": "View customer records"
+              }
             }
           }
         },
@@ -655,14 +844,30 @@
             "description": "Updated entitlement",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/EntitlementInfo" }
+                "schema": {
+                  "$ref": "#/components/schemas/EntitlementInfo"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "description": "Entitlement not found in the selected scope" },
-          "500": { "$ref": "#/components/responses/ServiceError" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Entitlement not found in the selected scope"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServiceError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
+          }
         }
       }
     },
@@ -675,7 +880,8 @@
         "operationId": "setEntitlementActive",
         "security": [
           {
-            "AdminApiKey": []
+            "AdminApiKey": [],
+            "EntraAdminBearer": []
           }
         ],
         "parameters": [
@@ -723,8 +929,15 @@
           },
           "404": {
             "description": "Entitlement not found in the selected scope"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/AdminLookupUnavailable"
           }
-        }
+        },
+        "description": "Admin for the selected unit organization."
       }
     }
   },
@@ -734,13 +947,25 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-Access-Control-Key",
-        "description": "Use ApiKeys:DecisionKey for POST /v1/decisions."
+        "description": "Per-client decision credential scoped to configured modules, application tenants, and unit organizations."
       },
       "AdminApiKey": {
         "type": "apiKey",
         "in": "header",
         "name": "X-Access-Control-Key",
-        "description": "Use ApiKeys:AdminKey for policy and role administration."
+        "description": "Administrator service credential, used together with a validated Entra access token."
+      },
+      "EntraAdminBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Entra access token for the configured administrator API audience; current management duty is checked in User Management."
+      },
+      "DecisionEntraBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Validated Entra access token whose oid must match subjectId for a non-anonymous decision."
       }
     },
     "parameters": {
@@ -845,7 +1070,6 @@
       "DecisionRequest": {
         "type": "object",
         "required": [
-          "roleIds",
           "module",
           "httpMethod",
           "routeTemplate",
@@ -856,7 +1080,7 @@
           "subjectId": {
             "type": "string",
             "nullable": true,
-            "description": "The validated Entra JWT oid claim, or null for an anonymous request.",
+            "description": "Validated Entra oid matching the forwarded bearer token; null for an anonymous public request.",
             "example": "alice"
           },
           "module": {
@@ -875,6 +1099,12 @@
             "type": "string",
             "example": "default"
           },
+          "unitOrganizationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Trusted gateway unit organization ID. All-zero is reserved for global public decisions.",
+            "example": "33333333-3333-3333-3333-333333333333"
+          },
           "roleIds": {
             "type": "array",
             "maxItems": 16,
@@ -882,13 +1112,7 @@
               "type": "string",
               "format": "uuid"
             },
-            "description": "Role IDs returned by User Management. Empty for anonymous callers."
-          },
-          "unitOrganizationId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "UO ID validated through User Management. All-zero ID is reserved for global public policies and anonymous decisions.",
-            "example": "33333333-3333-3333-3333-333333333333"
+            "description": "Role IDs from the authenticated User Management identity for this tenant and unit organization. Empty or omitted for anonymous public decisions."
           }
         }
       },
@@ -1107,12 +1331,35 @@
       },
       "PolicyPageResponse": {
         "type": "object",
-        "required": ["items", "page", "pageSize", "totalCount"],
+        "required": [
+          "items",
+          "page",
+          "pageSize",
+          "totalCount"
+        ],
         "properties": {
-          "items": { "type": "array", "items": { "$ref": "#/components/schemas/PolicyRequest" } },
-          "page": { "type": "integer", "format": "int32", "minimum": 1 },
-          "pageSize": { "type": "integer", "format": "int32", "minimum": 1, "maximum": 100 },
-          "totalCount": { "type": "integer", "format": "int32", "minimum": 0 }
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PolicyRequest"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "totalCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
         }
       },
       "EntitlementInfo": {
@@ -1153,9 +1400,15 @@
       },
       "UpdateEntitlementDisplayNameRequest": {
         "type": "object",
-        "required": ["displayName"],
+        "required": [
+          "displayName"
+        ],
         "properties": {
-          "displayName": { "type": "string", "minLength": 1, "maxLength": 200 }
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
         }
       },
       "SetEntitlementActiveRequest": {
@@ -1182,10 +1435,23 @@
         }
       },
       "Unauthorized": {
-        "description": "Missing or incorrect X-Access-Control-Key"
+        "description": "Missing or invalid API key or administrator actor bearer token"
       },
       "ServiceError": {
         "description": "Service or database error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDetails"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "The authenticated administrator lacks the required tenant, unit organization, or SuperAdmin scope"
+      },
+      "AdminLookupUnavailable": {
+        "description": "User Management could not verify current administrator duties",
         "content": {
           "application/json": {
             "schema": {

@@ -46,49 +46,38 @@ public sealed class AccessControlMiddleware(
             ? context.User.FindFirstValue("oid") ??
                 context.User.FindFirstValue("http://schemas.microsoft.com/identity/claims/objectidentifier")
             : null;
-        if (authenticated && string.IsNullOrWhiteSpace(subjectId))
-        {
-            logger.LogWarning("Authenticated request has no oid claim for {Method} {Route}; trace {TraceId}", method, route, context.TraceIdentifier);
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return;
-        }
 
         string tenantId = (authenticated ? context.User.FindFirstValue(settings.TenantClaimType) : null)
             ?? settings.DefaultTenantId;
         Guid unitOrganizationId = Guid.Empty;
         ClaimsIdentity[] managedIdentities = context.User.Identities
-            .Where(identity => identity.AuthenticationType == settings.RoleIdentityAuthenticationType).ToArray();
+            .Where(identity => identity.IsAuthenticated &&
+                identity.AuthenticationType == settings.RoleIdentityAuthenticationType).ToArray();
+        Guid[] roleIds = [];
         if (authenticated)
         {
             string[] organizationClaims = managedIdentities.SelectMany(identity => identity.Claims)
                 .Where(claim => claim.Type == "user_management_unit_organization_id")
                 .Select(claim => claim.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            if (organizationClaims.Length != 1 ||
-                !Guid.TryParse(organizationClaims[0], out unitOrganizationId) || unitOrganizationId == Guid.Empty ||
+            if (managedIdentities.Length != 1 || organizationClaims.Length != 1 ||
+                !Guid.TryParse(organizationClaims[0], out unitOrganizationId) ||
+                unitOrganizationId == Guid.Empty ||
                 managedIdentities.Any(identity => !string.Equals(identity.FindFirst("user_management_tenant_id")?.Value,
                     tenantId.Trim(), StringComparison.OrdinalIgnoreCase)))
+                unitOrganizationId = Guid.Empty;
+            else
             {
-                logger.LogWarning("Missing or inconsistent unit organization/tenant from User Management; trace {TraceId}", context.TraceIdentifier);
-                context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                return;
+                string[] claims = managedIdentities[0].FindAll(settings.RoleIdClaimType)
+                    .Select(claim => claim.Value).ToArray();
+                if (claims.Length <= 16 && claims.All(value => Guid.TryParse(value, out Guid id) && id != Guid.Empty))
+                    roleIds = claims.Select(Guid.Parse).Distinct().ToArray();
+                else
+                    unitOrganizationId = Guid.Empty;
             }
         }
-        string[] roleClaims = authenticated
-            ? managedIdentities
-                .SelectMany(identity => identity.Claims)
-                .Where(claim => claim.Type == settings.RoleIdClaimType)
-                .Select(claim => claim.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
-            : [];
-        if (roleClaims.Length > 16 || roleClaims.Any(value => !Guid.TryParse(value, out Guid id) || id == Guid.Empty))
-        {
-            logger.LogWarning("Invalid application role IDs for {Method} {Route}; trace {TraceId}", method, route, context.TraceIdentifier);
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
-        }
-        Guid[] roleIds = roleClaims.Select(Guid.Parse).Distinct().ToArray();
-        DecisionRequest request = new(subjectId, roleIds, settings.Module, method, route, tenantId, unitOrganizationId);
-        logger.LogDebug("Requesting decision for {TenantId} {Module} {Method} {Route}; authenticated {Authenticated}, roles {RoleCount}, trace {TraceId}",
-            tenantId, settings.Module, method, route, authenticated, roleIds.Length, context.TraceIdentifier);
+        DecisionRequest request = new(subjectId, settings.Module, method, route, tenantId, unitOrganizationId, roleIds);
+        logger.LogDebug("Requesting decision for {TenantId} {Module} {Method} {Route}; authenticated {Authenticated}, trace {TraceId}",
+            tenantId, settings.Module, method, route, authenticated, context.TraceIdentifier);
 
         DecisionResponse decision;
         try

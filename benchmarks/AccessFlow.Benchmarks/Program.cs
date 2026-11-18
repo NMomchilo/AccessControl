@@ -89,7 +89,12 @@ try
 {
     using HttpClient client = new() { BaseAddress = new Uri(app.Urls.Single()), Timeout = TimeSpan.FromSeconds(30) };
     FlowCounters counters = app.Services.GetRequiredService<FlowCounters>();
-    string hotUser = CreateToken(Guid.NewGuid(), signingKey);
+    Guid[] provisionedOids = File.ReadAllLines(settings.UserIdsFile)
+        .Where(line => !string.IsNullOrWhiteSpace(line))
+        .Select(line => Guid.Parse(line.Trim())).ToArray();
+    if (provisionedOids.Length < settings.UserCount)
+        throw new ArgumentException("The user IDs file must contain at least --users provisioned oids.");
+    string hotUser = CreateToken(provisionedOids[0], signingKey);
     await SendAsync(client, hotUser, "/integration/42", StatusCodes.Status200OK);
     long controllerBeforeDeny = counters.Snapshot().ControllerCalls;
     await SendAsync(client, hotUser, "/denied/42", StatusCodes.Status403Forbidden);
@@ -106,8 +111,8 @@ try
         throw new InvalidOperationException("Request with invalid JWT signature reached the controller.");
     }
 
-    string[] manyUsers = Enumerable.Range(0, settings.UserCount)
-        .Select(_ => CreateToken(Guid.NewGuid(), signingKey)).ToArray();
+    string[] manyUsers = provisionedOids.Take(settings.UserCount)
+        .Select(oid => CreateToken(oid, signingKey)).ToArray();
     foreach (string user in manyUsers)
     {
         await SendAsync(client, user, "/integration/42", StatusCodes.Status200OK);
@@ -126,11 +131,6 @@ try
         results.Add(await MeasureAsync($"{settings.UserCount} existing users", client, counters,
             manyUsers, settings.Requests, concurrency));
     }
-
-    string[] newUsers = Enumerable.Range(0, settings.NewUsers)
-        .Select(_ => CreateToken(Guid.NewGuid(), signingKey)).ToArray();
-    results.Add(await MeasureAsync("new user per request", client, counters, newUsers, settings.NewUsers,
-        settings.Concurrency.Max()));
 
     FlowBenchmarkReport report = new(DateTimeOffset.UtcNow, RuntimeInformation.FrameworkDescription,
         RuntimeInformation.OSDescription, Environment.ProcessorCount,
@@ -209,14 +209,14 @@ static async Task SendAsync(HttpClient client, string token, string route, int e
     }
 }
 
-internal sealed record BenchmarkSettings(int Requests, int[] Concurrency, int UserCount, int NewUsers, string Output)
+internal sealed record BenchmarkSettings(int Requests, int[] Concurrency, int UserCount, string UserIdsFile, string Output)
 {
     public static BenchmarkSettings Parse(string[] args)
     {
         int requests = 5000;
         int[] concurrency = [1, 16, 64];
         int userCount = 100;
-        int newUsers = 200;
+        string? userIdsFile = null;
         string output = "artifacts/benchmarks/access-flow-docker.json";
         for (int i = 0; i < args.Length; i += 2)
         {
@@ -230,19 +230,20 @@ internal sealed record BenchmarkSettings(int Requests, int[] Concurrency, int Us
                 case "--requests": requests = int.Parse(args[i + 1]); break;
                 case "--concurrency": concurrency = args[i + 1].Split(',').Select(int.Parse).ToArray(); break;
                 case "--users": userCount = int.Parse(args[i + 1]); break;
-                case "--new-users": newUsers = int.Parse(args[i + 1]); break;
+                case "--user-ids-file": userIdsFile = args[i + 1]; break;
                 case "--output": output = args[i + 1]; break;
                 default: throw new ArgumentException($"Unknown option: {args[i]}");
             }
         }
 
-        if (requests < 1 || userCount < 1 || newUsers < 1 || concurrency.Length == 0 ||
+        if (requests < 1 || userCount < 1 || string.IsNullOrWhiteSpace(userIdsFile) ||
+            !File.Exists(userIdsFile) || concurrency.Length == 0 ||
             concurrency.Any(value => value < 1))
         {
-            throw new ArgumentException("Requests, users, new users, and concurrency must be positive.");
+            throw new ArgumentException("Requests, users, and concurrency must be positive; --user-ids-file must exist.");
         }
 
-        return new BenchmarkSettings(requests, concurrency, userCount, newUsers, output);
+        return new BenchmarkSettings(requests, concurrency, userCount, userIdsFile, output);
     }
 }
 
@@ -302,7 +303,8 @@ public sealed class FlowBenchmarkController(FlowCounters counters) : ControllerB
     [HttpGet("/integration/{id}")]
     public IActionResult Get(string id)
     {
-        if (!User.HasClaim(UserManagementClaims.Role, "reviewer"))
+        if (!User.Claims.Any(claim => claim.Type == UserManagementClaims.RoleId &&
+                Guid.TryParse(claim.Value, out Guid roleId) && roleId != Guid.Empty))
         {
             return StatusCode(StatusCodes.Status500InternalServerError);
         }

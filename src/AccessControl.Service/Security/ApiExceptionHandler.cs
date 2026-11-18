@@ -12,6 +12,7 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
         {
             EntitlementConflictException => StatusCodes.Status409Conflict,
             ArgumentException => StatusCodes.Status400BadRequest,
+            AdminLookupUnavailableException => StatusCodes.Status503ServiceUnavailable,
             _ => StatusCodes.Status500InternalServerError
         };
         if (status is StatusCodes.Status400BadRequest or StatusCodes.Status409Conflict)
@@ -30,6 +31,7 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
             {
                 StatusCodes.Status400BadRequest => "Invalid request",
                 StatusCodes.Status409Conflict => "Entitlement conflict",
+                StatusCodes.Status503ServiceUnavailable => "Administrator lookup unavailable",
                 _ => "Service error"
             }
         };

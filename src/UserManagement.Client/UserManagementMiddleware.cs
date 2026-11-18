@@ -66,11 +66,7 @@ public sealed class UserManagementMiddleware(RequestDelegate next, IUserManageme
             return;
         }
 
-        UserIdentityRequest request = new(tenantId, organizationId, organizationName.Trim(), id.ToString("D"),
-            context.User.FindFirstValue("preferred_username") ?? context.User.FindFirstValue(ClaimTypes.Email) ??
-                context.User.FindFirstValue(ClaimTypes.Upn) ?? context.User.FindFirstValue("upn") ??
-                context.User.FindFirstValue("unique_name"),
-            context.User.FindFirstValue("name") ?? context.User.FindFirstValue(ClaimTypes.Name));
+        UserIdentityRequest request = new(tenantId, organizationId, id.ToString("D"));
         UserIdentityResponse resolved;
         try
         {
@@ -79,6 +75,13 @@ public sealed class UserManagementMiddleware(RequestDelegate next, IUserManageme
         catch (UnitOrganizationAccessException)
         {
             logger.LogWarning("Gateway organization was rejected; trace {TraceId}", context.TraceIdentifier);
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        catch (UserNotProvisionedException)
+        {
+            logger.LogInformation("User or organization membership is not provisioned; trace {TraceId}",
+                context.TraceIdentifier);
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }

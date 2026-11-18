@@ -8,16 +8,20 @@ namespace AccessControl.Service.Controllers;
 [ApiController]
 [Route("v1/policies")]
 public sealed class PoliciesController(AuthorizationService authorizationService, PolicyCatalogService policyCatalog,
-    ILogger<PoliciesController> logger) : ControllerBase
+    IAdminScopeAuthorizer scopeAuthorizer, ILogger<PoliciesController> logger)
+    : AdminControllerBase(scopeAuthorizer)
 {
     [HttpGet("search")]
     [ProducesResponseType(typeof(PolicyPageResponse), StatusCodes.Status200OK)]
-    public Task<PolicyPageResponse> SearchAsync([FromQuery] string tenantId,
+    public async Task<IActionResult> SearchAsync([FromQuery] string tenantId,
         [FromQuery] Guid? unitOrganizationId, [FromQuery] string? module, [FromQuery] string? httpMethod,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 100,
-        CancellationToken cancellationToken = default) =>
-        policyCatalog.SearchAsync(tenantId, unitOrganizationId, module, httpMethod, page, pageSize,
-            cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        if (!await CanManageAsync(tenantId, unitOrganizationId, cancellationToken)) return Forbid();
+        return Ok(await policyCatalog.SearchAsync(tenantId, unitOrganizationId, module, httpMethod, page,
+            pageSize, cancellationToken));
+    }
 
     [HttpGet]
     [ProducesResponseType(typeof(PolicyRequest), StatusCodes.Status200OK)]
@@ -25,6 +29,7 @@ public sealed class PoliciesController(AuthorizationService authorizationService
     public async Task<IActionResult> GetAsync([FromQuery] string tenantId, [FromQuery, BindRequired] Guid unitOrganizationId, [FromQuery] string module,
         [FromQuery] string httpMethod, [FromQuery] string routeTemplate, CancellationToken cancellationToken)
     {
+        if (!await CanManageAsync(tenantId, unitOrganizationId, cancellationToken)) return Forbid();
         PolicyRequest? policy = await authorizationService.GetPolicyAsync(tenantId, unitOrganizationId, module, httpMethod, routeTemplate, cancellationToken);
         logger.LogDebug("Policy API lookup completed; found {Found}, trace {TraceId}", policy is not null, HttpContext.TraceIdentifier);
         return policy is null ? NotFound() : Ok(policy);
@@ -34,6 +39,7 @@ public sealed class PoliciesController(AuthorizationService authorizationService
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> UpsertAsync([FromBody] PolicyRequest request, CancellationToken cancellationToken)
     {
+        if (request is null || !await CanManageAsync(request.TenantId, request.UnitOrganizationId, cancellationToken)) return Forbid();
         await authorizationService.UpsertPolicyAsync(request, cancellationToken);
         logger.LogInformation("Policy API upsert completed; trace {TraceId}", HttpContext.TraceIdentifier);
         return NoContent();
@@ -43,8 +49,10 @@ public sealed class PoliciesController(AuthorizationService authorizationService
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> DeleteAsync([FromBody] PolicyKeyRequest request, CancellationToken cancellationToken)
     {
+        if (request is null || !await CanManageAsync(request.TenantId, request.UnitOrganizationId, cancellationToken)) return Forbid();
         await authorizationService.DeletePolicyAsync(request, cancellationToken);
         logger.LogInformation("Policy API delete completed; trace {TraceId}", HttpContext.TraceIdentifier);
         return NoContent();
     }
+
 }

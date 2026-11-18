@@ -1,5 +1,7 @@
 # Docker SQL Server verification and benchmarks — 2026-11-09
 
+Historical result: the first sign-in and Reviewer behavior measured below has been removed. Current requests do not create UOs, users, memberships, or roles.
+
 ## Environment and checks
 
 The repository's `local-sqlserver` Docker container ran SQL Server 2022 on localhost port 1433. Benchmarks ran on Windows 10.0.22631 with .NET 10.0.10 and 20 visible processors. User Management and Access Control each used a dedicated Docker SQL Server database. EF Core applied both User Management migrations and all three Access Control migrations before the tests.
