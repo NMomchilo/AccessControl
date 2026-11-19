@@ -39,9 +39,19 @@ public sealed class AccessControlDbContext(DbContextOptions<AccessControlDbConte
     public DbSet<EndpointPolicyEntity> EndpointPolicies => Set<EndpointPolicyEntity>();
     public DbSet<EndpointPolicyEntitlementEntity> EndpointPolicyEntitlements => Set<EndpointPolicyEntitlementEntity>();
     public DbSet<AuthorizationRevisionEntity> AuthorizationRevisions => Set<AuthorizationRevisionEntity>();
+    public DbSet<ModuleEntity> Modules => Set<ModuleEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ModuleEntity>(entity =>
+        {
+            entity.ToTable("Modules");
+            entity.HasKey(value => value.Id);
+            entity.Property(value => value.TenantId).HasMaxLength(128).IsRequired();
+            entity.Property(value => value.Code).HasMaxLength(128).IsRequired();
+            entity.Property(value => value.Name).HasMaxLength(200).IsRequired();
+            entity.HasIndex(value => new { value.TenantId, value.UnitOrganizationId, value.Code }).IsUnique();
+        });
         modelBuilder.Entity<EntitlementEntity>(entity =>
         {
             entity.ToTable("Entitlements");

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using AdminManagement.Security;
 using System.Text;
 using System.Text.Json;
 using AccessControl.Contracts;
@@ -24,10 +25,12 @@ public sealed class ApiKeyMiddleware(RequestDelegate next, IOptions<ApiKeyOption
 
         bool decision = HttpMethods.IsPost(context.Request.Method) &&
             context.Request.Path == "/v1/decisions";
+        bool registration = HttpMethods.IsPost(context.Request.Method) &&
+            context.Request.Path == "/v1/registrations/catalog";
         string provided = context.Request.Headers[HeaderName].ToString();
-        DecisionClientCredential? decisionClient = decision
+        DecisionClientCredential? decisionClient = decision || registration
             ? options.Value.DecisionClients.FirstOrDefault(value => KeysEqual(provided, value.Key)) : null;
-        if (decision ? decisionClient is null : !KeysEqual(provided, options.Value.AdminKey))
+        if (decision || registration ? decisionClient is null : !KeysEqual(provided, options.Value.AdminKey))
         {
             logger.LogWarning("API key rejected for {Method} {Path}; trace {TraceId}",
                 context.Request.Method, context.Request.Path.Value, context.TraceIdentifier);
@@ -35,7 +38,17 @@ public sealed class ApiKeyMiddleware(RequestDelegate next, IOptions<ApiKeyOption
             return;
         }
 
-        if (decision)
+        if (registration)
+        {
+            if (decisionClient is not { CanRegisterCatalog: true })
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
+            context.Items[nameof(DecisionClientCredential)] = decisionClient;
+            context.User = RegistrationClientIdentity.Create(decisionClient.ClientId);
+        }
+        else if (decision)
         {
             DecisionClientCredential scopedClient = decisionClient!;
             if (context.Request.ContentLength > 16 * 1024)
@@ -58,15 +71,11 @@ public sealed class ApiKeyMiddleware(RequestDelegate next, IOptions<ApiKeyOption
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
                 return;
             }
-            if (request is null || !scopedClient.Modules.Contains(request.Module,
-                    StringComparer.OrdinalIgnoreCase) ||
-                !scopedClient.Tenants.Contains(request.TenantId, StringComparer.OrdinalIgnoreCase) ||
-                !scopedClient.AllowAnyUnitOrganization &&
-                    !scopedClient.UnitOrganizationIds.Contains(request.UnitOrganizationId))
+            if (request is null)
             {
-                logger.LogWarning("Decision scope rejected for client {ClientId}; trace {TraceId}",
+                logger.LogWarning("Empty decision payload from client {ClientId}; trace {TraceId}",
                     scopedClient.ClientId, context.TraceIdentifier);
-                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
                 return;
             }
             if (!string.IsNullOrWhiteSpace(request.SubjectId))

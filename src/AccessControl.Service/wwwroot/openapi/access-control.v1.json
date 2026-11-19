@@ -88,13 +88,46 @@
         }
       }
     },
+    "/v1/registrations/catalog": {
+      "post": {
+        "tags": ["Decisions"],
+        "summary": "Register a consuming API module and its discovered endpoints",
+        "description": "Uses the existing decision client key when CanRegisterCatalog is enabled. The consuming API supplies tenant, unit organization, and module; a registration-enabled key may register any of them. The configured ClientId identifies the write actor. Creates a missing active module and protected policies with no entitlements. An administrator may later edit a registered policy, including setting isPublic to true through PUT /v1/policies. Subsequent registration never overwrites that edit. Call after User Management organization registration.",
+        "operationId": "registerEndpointCatalog",
+        "security": [{"DecisionApiKey": []}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object",
+            "required": ["tenantId", "unitOrganizationId", "module", "moduleName", "endpoints"],
+            "properties": {
+              "tenantId": {"type": "string", "maxLength": 128},
+              "unitOrganizationId": {"type": "string", "format": "uuid"},
+              "module": {"type": "string", "maxLength": 128},
+              "moduleName": {"type": "string", "maxLength": 200},
+              "endpoints": {"type": "array", "maxItems": 1000, "items": {"type": "object", "required": ["httpMethod", "routeTemplate"], "properties": {
+                "httpMethod": {"type": "string", "maxLength": 16},
+                "routeTemplate": {"type": "string", "maxLength": 512}
+              }}}
+            }
+          }}}
+        },
+        "responses": {
+          "200": {"description": "Registration counts returned; existing module and policies preserved"},
+          "400": {"description": "Invalid catalog"},
+          "401": {"description": "Invalid client key"},
+          "403": {"description": "Registration is not enabled for this client"},
+          "409": {"description": "Module name differs or module is inactive"}
+        }
+      }
+    },
     "/v1/decisions": {
       "post": {
         "tags": [
           "Decisions"
         ],
         "summary": "Evaluate one endpoint request",
-        "description": "For a protected policy, Access Control evaluates role IDs forwarded by the consuming API after User Management enrichment. Non-null subjectId requires a matching validated Entra bearer token and a scoped decision credential. Anonymous public decisions require the scoped credential only.",
+        "description": "For a protected policy, Access Control evaluates role IDs forwarded by the consuming API after User Management enrichment. Non-null subjectId requires a matching validated Entra bearer token and a decision client key. Anonymous public decisions require the client key only. A valid key may request any tenant, unit organization, and module.",
         "operationId": "decideAccess",
         "security": [
           {
@@ -170,7 +203,7 @@
             "$ref": "#/components/responses/ServiceError"
           },
           "403": {
-            "description": "Decision client is not allowed to assert the requested module, tenant, or unit organization."
+            "description": "Decision client is not allowed to assert the requested unit organization."
           },
           "503": {
             "description": "Decision service or persistence is unavailable."
@@ -973,7 +1006,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-Access-Control-Key",
-        "description": "Per-client decision credential scoped to configured modules, application tenants, and unit organizations."
+        "description": "Per-client decision credential. The consuming API supplies tenant, unit organization, and module. Startup catalog registration requires CanRegisterCatalog on the existing client."
       },
       "AdminApiKey": {
         "type": "apiKey",

@@ -19,7 +19,7 @@ docker compose up -d sqlserver
 dotnet run --project src/AccessControl.Service --launch-profile https
 ```
 
-Open `https://localhost:7219/swagger`. Development startup can apply the fresh first-version migration. The example configuration is in `src/AccessControl.Service/appsettings.Development.json`. Replace example keys and connection strings outside Development. `GET /health` is a liveness check; `GET /ready` checks database connectivity and returns `503` when it cannot connect. Neither GET probe needs an API key. Administrator API calls need the administrator key and validated Entra token; decision calls need a scoped client key, and protected decisions need a bearer token whose `oid` matches `subjectId`.
+Open `https://localhost:7219/swagger`. Development startup can apply the fresh first-version migration. The example configuration is in `src/AccessControl.Service/appsettings.Development.json`. Replace example keys and connection strings outside Development. `GET /health` is a liveness check; `GET /ready` checks database connectivity and returns `503` when it cannot connect. Neither GET probe needs an API key. Administrator API calls need the administrator key and validated Entra token; decision calls need a client key, and protected decisions need a bearer token whose `oid` matches `subjectId`.
 
 ## NuGet packages and consuming APIs
 
@@ -31,15 +31,23 @@ dotnet pack src/AccessControl.Client -c Release -o artifacts/packages
 Install matching `AccessControl.Client` and `AccessControl.Contracts` versions. A consuming API that also uses User Management installs its `Client` and `Contracts` packages from the User Management repository or package feed. Register both with `builder.Services.AddUserManagement(configuration)` and `builder.Services.AddAccessControl(configuration)` and order the middleware after JWT and gateway authentication:
 
 ```csharp
+AccessControlCatalogRegistrationOptions registration = builder.Configuration
+    .GetRequiredSection("AccessControl:Registration")
+    .Get<AccessControlCatalogRegistrationOptions>()
+    ?? throw new InvalidOperationException("AccessControl:Registration is required.");
+
 app.UseRouting();
 app.UseAuthentication();
 app.UseUserManagement();
 app.UseAccessControl();
 app.UseAuthorization();
 app.MapControllers();
+await app.RegisterAccessControlCatalogAsync(registration);
 ```
 
 `UserManagement.Client` adds role IDs to the authenticated request before Access Control runs. The consuming API must authenticate the gateway assertion before adding a `Gateway` identity; untrusted organization headers are insufficient. See [the Access Control API guide](docs/api-contract.md), [OpenAPI 3](src/AccessControl.Service/wwwroot/openapi/access-control.v1.json), and the separate User Management README for full setup.
+
+Set `AccessControl:Registration` to the consuming project's `TenantId`, `UnitOrganizationId`, `UnitOrganizationName`, and `ModuleName`, then pass the bound object to `RegisterAccessControlCatalogAsync`. Startup calls User Management to create or confirm the organization, then Access Control to create or confirm the module and insert missing endpoint policies. It reuses `UserManagement:ServiceUrl` and `UserManagement:ApiKey` and the existing `AccessControl:ServiceUrl` and `AccessControl:ApiKey`; no registration URL, key, or client is added. Enable `CanRegisterUnitOrganizations` and `CanRegisterCatalog` on those existing service clients. A registration-enabled key can supply any tenant, organization, and module; each service records its configured `ClientId` as the write actor. If either call fails, startup fails. New policies deny until an administrator edits them to be public or sets their required entitlements. Existing policy settings are preserved. The JSON catalog export is removed.
 
 ## Build, tests, and benchmarks
 

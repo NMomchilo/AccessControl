@@ -177,6 +177,18 @@ public sealed class EndpointAuthorizationTests
     }
 
     [Fact]
+    public async Task OrganizationPolicyWithNoEntitlementsTakesPrecedenceOverGlobalPublicAsync()
+    {
+        FakeEndpointStore store = new();
+        store.Policies.Add(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", true, [], Guid.Empty));
+        store.Policies.Add(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", false, [], OrganizationA));
+
+        DecisionResponse result = await Service(store).DecideAsync(Decision(OrganizationA), CancellationToken.None);
+
+        Assert.False(result.Permit);
+    }
+
+    [Fact]
     public async Task MissingPolicyDeniesAndAnonymousProtectedRequiresAuthenticationAsync()
     {
         FakeEndpointStore store = new();

@@ -12,5 +12,4 @@ public sealed class AccessControlClientOptions
     public string RoleIdentityAuthenticationType { get; set; } = "UserManagement";
     public int TimeoutSeconds { get; set; } = 5;
     public string[] ExcludedPaths { get; set; } = [];
-    public string? CatalogOutputPath { get; set; }
 }

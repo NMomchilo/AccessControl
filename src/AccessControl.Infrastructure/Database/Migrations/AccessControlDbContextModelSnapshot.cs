@@ -191,6 +191,50 @@ namespace AccessControl.Infrastructure.Database.Migrations
                     b.ToTable("Entitlements", (string)null);
                 });
 
+            modelBuilder.Entity("AccessControl.Infrastructure.Database.ModuleEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasDefaultValueSql("NEWSEQUENTIALID()");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime>("LastUpdateTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LastUpdateUser")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<Guid>("UnitOrganizationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "UnitOrganizationId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("Modules", (string)null);
+                });
+
             modelBuilder.Entity("AccessControl.Infrastructure.Database.RoleEntitlementEntity", b =>
                 {
                     b.Property<Guid>("Id")

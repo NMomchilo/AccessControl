@@ -327,9 +327,6 @@ public sealed class DecisionApiTests
             builder.UseSetting("ConnectionStrings:AccessControl", "Server=localhost;Database=unused;Trusted_Connection=True");
             builder.UseSetting("ApiKeys:DecisionClients:0:ClientId", "customer-test");
             builder.UseSetting("ApiKeys:DecisionClients:0:Key", "decision-test-key-0123456789abcdef");
-            builder.UseSetting("ApiKeys:DecisionClients:0:Modules:0", "customers");
-            builder.UseSetting("ApiKeys:DecisionClients:0:Tenants:0", "tenant-a");
-            builder.UseSetting("ApiKeys:DecisionClients:0:UnitOrganizationIds:0", Organization.ToString("D"));
             builder.UseSetting("ApiKeys:AdminKey", "admin-test-key-0123456789abcdef-1");
             builder.UseSetting("EntraAdmin:Authority", "https://login.microsoftonline.com/test-tenant/v2.0");
             builder.UseSetting("EntraAdmin:Audience", "api://test-admin");

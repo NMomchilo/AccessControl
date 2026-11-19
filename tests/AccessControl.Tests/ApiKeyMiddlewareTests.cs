@@ -10,6 +10,53 @@ namespace AccessControl.Tests;
 
 public sealed class ApiKeyMiddlewareTests
 {
+    [Fact]
+    public async Task DecisionClientAcceptsModuleAndTenantProvidedByApiAsync()
+    {
+        bool reached = false;
+        ApiKeyMiddleware middleware = new(_ => { reached = true; return Task.CompletedTask; },
+            Options.Create(new ApiKeyOptions
+            {
+                DecisionClients = [new DecisionClientCredential
+                {
+                    ClientId = "customer", Key = "decision"
+                }], AdminKey = "admin"
+            }), NullLogger<ApiKeyMiddleware>.Instance);
+        DefaultHttpContext context = new();
+        context.Request.Path = "/v1/decisions";
+        context.Request.Method = "POST";
+        context.Request.Headers[ApiKeyMiddleware.HeaderName] = "decision";
+        context.Request.Body = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(
+            new DecisionRequest(null, "payments", "GET", "/payments", "another-tenant", Guid.NewGuid())));
+
+        await middleware.InvokeAsync(context);
+
+        Assert.True(reached);
+    }
+    [Fact]
+    public async Task ExistingDecisionClientKeyCanRegisterOnlyWhenOptedInAsync()
+    {
+        bool reached = false;
+        ApiKeyMiddleware middleware = new(_ => { reached = true; return Task.CompletedTask; },
+            Options.Create(new ApiKeyOptions
+            {
+                DecisionClients = [new DecisionClientCredential
+                {
+                    ClientId = "customer", Key = "decision",
+                    CanRegisterCatalog = true
+                }], AdminKey = "admin"
+            }), NullLogger<ApiKeyMiddleware>.Instance);
+        DefaultHttpContext context = new();
+        context.Request.Path = "/v1/registrations/catalog";
+        context.Request.Method = "POST";
+        context.Request.Headers[ApiKeyMiddleware.HeaderName] = "decision";
+
+        await middleware.InvokeAsync(context);
+
+        Assert.True(reached);
+        Assert.Equal("customer", context.User.FindFirst("service_client_id")?.Value);
+        Assert.IsType<DecisionClientCredential>(context.Items[nameof(DecisionClientCredential)]);
+    }
     [Theory]
     [InlineData("/v1/decisions", "decision", 200)]
     [InlineData("/v1/decisions", "admin", 401)]
@@ -19,8 +66,7 @@ public sealed class ApiKeyMiddlewareTests
     {
         ApiKeyMiddleware sut = new(_ => Task.CompletedTask, Options.Create(new ApiKeyOptions
         {
-            DecisionClients = [new DecisionClientCredential { ClientId = "test", Key = "decision",
-                Modules = ["customers"], Tenants = ["default"], AllowAnyUnitOrganization = true }],
+            DecisionClients = [new DecisionClientCredential { ClientId = "test", Key = "decision" }],
             AdminKey = "admin"
         }), NullLogger<ApiKeyMiddleware>.Instance);
         DefaultHttpContext context = new();
@@ -85,15 +131,14 @@ public sealed class ApiKeyMiddlewareTests
 
     [Theory]
     [InlineData("{", null, 400)]
-    [InlineData("{\"module\":\"other\",\"tenantId\":\"default\",\"unitOrganizationId\":\"00000000-0000-0000-0000-000000000000\"}", null, 403)]
+    [InlineData("null", null, 400)]
     [InlineData("{}", 20000, 413)]
-    public async Task DecisionClientRejectsMalformedOutOfScopeAndOversizedPayloadsAsync(
+    public async Task DecisionClientRejectsMalformedAndOversizedPayloadsAsync(
         string body, int? length, int expectedStatus)
     {
         ApiKeyMiddleware middleware = new(_ => Task.CompletedTask, Options.Create(new ApiKeyOptions
         {
-            DecisionClients = [new DecisionClientCredential { ClientId = "test", Key = "decision",
-                Modules = ["customers"], Tenants = ["default"], AllowAnyUnitOrganization = true }],
+            DecisionClients = [new DecisionClientCredential { ClientId = "test", Key = "decision" }],
             AdminKey = "admin"
         }), NullLogger<ApiKeyMiddleware>.Instance);
         DefaultHttpContext context = new();

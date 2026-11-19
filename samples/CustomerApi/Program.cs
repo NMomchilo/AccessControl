@@ -3,6 +3,10 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using UserManagement.Client;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+AccessControlCatalogRegistrationOptions catalogRegistration = builder.Configuration
+    .GetRequiredSection("AccessControl:Registration")
+    .Get<AccessControlCatalogRegistrationOptions>()
+    ?? throw new InvalidOperationException("AccessControl:Registration is required.");
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -24,5 +28,5 @@ app.UseAccessControl();
 app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapControllers();
-app.ExportAccessControlCatalog();
+await app.RegisterAccessControlCatalogAsync(catalogRegistration);
 app.Run();

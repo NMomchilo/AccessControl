@@ -52,6 +52,18 @@ public sealed class IdentityServiceTests
         Assert.Null(provider.ActorId);
     }
 
+    [Fact]
+    public void ActorProviderUsesAuthenticatedRegistrationClientIdAsync()
+    {
+        DefaultHttpContext context = new();
+        HttpContextActorProvider provider = new(new HttpContextAccessor { HttpContext = context });
+        context.User = RegistrationClientIdentity.Create("customer-api-local");
+        Assert.Equal("customer-api-local", provider.ActorId);
+        context.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(RegistrationClientIdentity.ClientIdClaimType, "forged")], "Bearer"));
+        Assert.Null(provider.ActorId);
+    }
+
     private sealed class RecordingDutyReader : IAdminDutyReader
     {
         public int Calls { get; private set; }
