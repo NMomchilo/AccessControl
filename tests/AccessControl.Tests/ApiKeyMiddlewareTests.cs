@@ -48,6 +48,7 @@ public sealed class ApiKeyMiddlewareTests
             DecisionClients = [new DecisionClientCredential { ClientId = "test", Key = "decision" }], AdminKey = "admin"
         }), NullLogger<ApiKeyMiddleware>.Instance);
         DefaultHttpContext health = new();
+        health.Request.Method = "GET";
         health.Request.Path = "/health";
         DefaultHttpContext decision = new();
         decision.Request.Path = "/v1/decisions";
@@ -58,6 +59,28 @@ public sealed class ApiKeyMiddlewareTests
         Assert.Equal(1, downstreamCalls);
         Assert.Equal(200, health.Response.StatusCode);
         Assert.Equal(401, decision.Response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("GET", "/health", 200)]
+    [InlineData("GET", "/ready", 200)]
+    [InlineData("POST", "/health", 401)]
+    [InlineData("POST", "/ready", 401)]
+    public async Task OnlyGetHealthAndReadinessBypassKeyAsync(string method, string path, int expectedStatus)
+    {
+        int downstreamCalls = 0;
+        ApiKeyMiddleware sut = new(_ => { downstreamCalls++; return Task.CompletedTask; }, Options.Create(new ApiKeyOptions
+        {
+            DecisionClients = [new DecisionClientCredential { ClientId = "test", Key = "decision" }], AdminKey = "admin"
+        }), NullLogger<ApiKeyMiddleware>.Instance);
+        DefaultHttpContext context = new();
+        context.Request.Method = method;
+        context.Request.Path = path;
+
+        await sut.InvokeAsync(context);
+
+        Assert.Equal(expectedStatus, context.Response.StatusCode);
+        Assert.Equal(expectedStatus == 200 ? 1 : 0, downstreamCalls);
     }
 
     [Theory]

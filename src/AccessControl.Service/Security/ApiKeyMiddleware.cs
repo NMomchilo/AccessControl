@@ -13,9 +13,11 @@ public sealed class ApiKeyMiddleware(RequestDelegate next, IOptions<ApiKeyOption
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (context.Request.Path == "/health")
+        if (HttpMethods.IsGet(context.Request.Method) &&
+            (context.Request.Path == "/health" || context.Request.Path == "/ready"))
         {
-            logger.LogDebug("Health request bypassed API key authentication; trace {TraceId}", context.TraceIdentifier);
+            logger.LogDebug("Probe request bypassed API key authentication for {Path}; trace {TraceId}",
+                context.Request.Path, context.TraceIdentifier);
             await next(context);
             return;
         }

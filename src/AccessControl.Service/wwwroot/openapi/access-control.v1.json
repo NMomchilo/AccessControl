@@ -62,6 +62,32 @@
         }
       }
     },
+    "/ready": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Check database readiness",
+        "description": "Returns 200 when the service can connect to its database and 503 otherwise. This endpoint does not check pending migrations.",
+        "operationId": "getReady",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Database connection is available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["status"],
+                  "properties": {
+                    "status": { "type": "string", "example": "ready" }
+                  }
+                }
+              }
+            }
+          },
+          "503": { "description": "Database connection is unavailable" }
+        }
+      }
+    },
     "/v1/decisions": {
       "post": {
         "tags": [

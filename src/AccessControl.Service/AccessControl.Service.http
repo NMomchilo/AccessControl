@@ -4,6 +4,9 @@
 
 GET {{host}}/health
 
+### Database readiness
+GET {{host}}/ready
+
 ### Decision
 POST {{host}}/v1/decisions
 Content-Type: application/json

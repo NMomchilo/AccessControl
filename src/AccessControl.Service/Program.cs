@@ -64,6 +64,10 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/ready", async (AccessControlDbContext db, CancellationToken cancellationToken) =>
+    await db.Database.CanConnectAsync(cancellationToken)
+        ? Results.Ok(new { status = "ready" })
+        : Results.StatusCode(StatusCodes.Status503ServiceUnavailable));
 app.MapControllers();
 if (app.Environment.IsDevelopment() &&
     app.Configuration.GetValue<bool>("AccessControlDatabase:ApplyMigrationsOnStartup"))

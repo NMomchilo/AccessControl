@@ -19,7 +19,7 @@ docker compose up -d sqlserver
 dotnet run --project src/AccessControl.Service --launch-profile https
 ```
 
-Open `https://localhost:7219/swagger`. Development startup can apply the fresh first-version migration. The example configuration is in `src/AccessControl.Service/appsettings.Development.json`. Replace example keys and connection strings outside Development. `GET /health` is a liveness check. Administrator API calls need the administrator key and validated Entra token; decision calls need a scoped client key, and protected decisions need a bearer token whose `oid` matches `subjectId`.
+Open `https://localhost:7219/swagger`. Development startup can apply the fresh first-version migration. The example configuration is in `src/AccessControl.Service/appsettings.Development.json`. Replace example keys and connection strings outside Development. `GET /health` is a liveness check; `GET /ready` checks database connectivity and returns `503` when it cannot connect. Neither GET probe needs an API key. Administrator API calls need the administrator key and validated Entra token; decision calls need a scoped client key, and protected decisions need a bearer token whose `oid` matches `subjectId`.
 
 ## NuGet packages and consuming APIs
 
