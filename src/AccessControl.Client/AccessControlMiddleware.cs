@@ -54,6 +54,8 @@ public sealed class AccessControlMiddleware(
             .Where(identity => identity.IsAuthenticated &&
                 identity.AuthenticationType == settings.RoleIdentityAuthenticationType).ToArray();
         Guid[] roleIds = [];
+        bool isSuperAdmin = false;
+        bool isUnitAdmin = false;
         if (authenticated)
         {
             string[] organizationClaims = managedIdentities.SelectMany(identity => identity.Claims)
@@ -67,15 +69,22 @@ public sealed class AccessControlMiddleware(
                 unitOrganizationId = Guid.Empty;
             else
             {
+                isSuperAdmin = HasDuty(managedIdentities[0], settings.SuperAdminClaimType);
+                isUnitAdmin = HasDuty(managedIdentities[0], settings.UnitAdminClaimType);
                 string[] claims = managedIdentities[0].FindAll(settings.RoleIdClaimType)
                     .Select(claim => claim.Value).ToArray();
                 if (claims.Length <= 16 && claims.All(value => Guid.TryParse(value, out Guid id) && id != Guid.Empty))
                     roleIds = claims.Select(Guid.Parse).Distinct().ToArray();
                 else
+                {
                     unitOrganizationId = Guid.Empty;
+                    isSuperAdmin = false;
+                    isUnitAdmin = false;
+                }
             }
         }
-        DecisionRequest request = new(subjectId, settings.Module, method, route, tenantId, unitOrganizationId, roleIds);
+        DecisionRequest request = new(subjectId, settings.Module, method, route, tenantId,
+            unitOrganizationId, roleIds, isSuperAdmin, isUnitAdmin);
         logger.LogDebug("Requesting decision for {TenantId} {Module} {Method} {Route}; authenticated {Authenticated}, trace {TraceId}",
             tenantId, settings.Module, method, route, authenticated, context.TraceIdentifier);
 
@@ -103,5 +112,11 @@ public sealed class AccessControlMiddleware(
             ? StatusCodes.Status401Unauthorized : StatusCodes.Status403Forbidden;
         logger.LogInformation("Access denied with status {StatusCode} for {Module} {Method} {Route}; trace {TraceId}",
             context.Response.StatusCode, settings.Module, method, route, context.TraceIdentifier);
+    }
+
+    private static bool HasDuty(ClaimsIdentity identity, string claimType)
+    {
+        Claim[] claims = identity.FindAll(claimType).ToArray();
+        return claims.Length == 1 && bool.TryParse(claims[0].Value, out bool granted) && granted;
     }
 }

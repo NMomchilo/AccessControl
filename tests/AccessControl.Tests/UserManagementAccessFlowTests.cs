@@ -15,8 +15,11 @@ public sealed class UserManagementAccessFlowTests
 {
     private static readonly Guid Reader = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly Guid Organization = Guid.Parse("33333333-3333-3333-3333-333333333333");
-    [Fact]
-    public async Task InvokeAsync_ResolvedReader_ReachesControllerOnlyAfterPermitAsync()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task InvokeAsync_ResolvedDutiesReachAccessControlDecisionAsync(bool isSuperAdmin, bool isUnitAdmin)
     {
         bool controllerRan = false;
         CapturingDecisionClient decisionClient = new();
@@ -31,7 +34,8 @@ public sealed class UserManagementAccessFlowTests
             RoleIdentityAuthenticationType = UserManagementClaims.IdentityAuthenticationType
         }), NullLogger<AccessControlMiddleware>.Instance);
         UserManagementMiddleware userManagement = new(accessControl.InvokeAsync,
-            new ReaderClient(), Options.Create(new UserManagementClientOptions()), NullLogger<UserManagementMiddleware>.Instance);
+            new ReaderClient(isSuperAdmin, isUnitAdmin), Options.Create(new UserManagementClientOptions()),
+            NullLogger<UserManagementMiddleware>.Instance);
         DefaultHttpContext context = new();
         context.Request.Method = "GET";
         context.User = new ClaimsPrincipal(new ClaimsIdentity(
@@ -49,14 +53,16 @@ public sealed class UserManagementAccessFlowTests
         Assert.True(controllerRan);
         Assert.Equal(Organization, decisionClient.Request?.UnitOrganizationId);
         Assert.Equal("9155ff4d-2708-4770-b87e-e238645ec5df", decisionClient.Request?.SubjectId);
+        Assert.Equal(isSuperAdmin, decisionClient.Request?.IsSuperAdmin);
+        Assert.Equal(isUnitAdmin, decisionClient.Request?.IsUnitAdmin);
     }
 
-    private sealed class ReaderClient : IUserManagementClient
+    private sealed class ReaderClient(bool isSuperAdmin, bool isUnitAdmin) : IUserManagementClient
     {
         public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), request.TenantId,
                 request.UnitOrganizationId, "Alpha", true,
-                [new UserRoleInfo(Reader, "reader", "Reader")]));
+                [new UserRoleInfo(Reader, "reader", "Reader")], isSuperAdmin, isUnitAdmin));
     }
 
     private sealed class CapturingDecisionClient : IAccessControlDecisionClient

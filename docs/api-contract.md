@@ -1,6 +1,6 @@
 # Access Control API contract
 
-User resolution and UO-scoped role IDs are documented in the separate User Management repository's `docs/user-management-api.md`. The consuming service validates its Entra JWT and trusted gateway UO assertion before Access Control. User Management middleware adds role IDs to `HttpContext.User`; Access Control middleware forwards them for protected decisions.
+User resolution, UO-scoped role IDs, and administrative duty flags are documented in the separate User Management repository's `docs/user-management-api.md`. The consuming service validates its Entra JWT and trusted gateway UO assertion before Access Control. User Management middleware adds role IDs and duties to `HttpContext.User`; Access Control middleware forwards them for protected decisions.
 
 Use HTTPS. Every request except `GET /health` and `GET /ready` requires `X-Access-Control-Key`. A configured per-client decision key calls `POST /v1/decisions`; the consuming API supplies the tenant, module, and unit organization. The same key may call `POST /v1/registrations/catalog` when `CanRegisterCatalog` is enabled. The configured `ClientId` identifies the registration actor for database writes. A registration-enabled client may register any tenant, unit organization, and module. Non-anonymous decisions also require an Entra bearer token whose validated `oid` matches `subjectId`. Administrator operations require the separate admin key and a validated Entra bearer token. Access Control asks User Management to verify the actor's current administrative duties for each request; the key and token alone do not grant a tenant or UO scope. A missing or invalid key or actor token returns `401`, an actor without the required administrative scope returns `403`, and an unavailable User Management scope lookup returns `503`. `GET /ready` returns `200` when the database connection works and `503` when it does not; it does not check pending migrations.
 
@@ -20,17 +20,19 @@ An active SuperAdmin can manage any UO in a tenant where User Management assigne
   "routeTemplate": "/customers/{id}",
   "tenantId": "default",
   "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
-  "roleIds": ["c4227c8a-16ef-eb3c-aedb-8197bf7f39c2"]
+  "roleIds": ["c4227c8a-16ef-eb3c-aedb-8197bf7f39c2"],
+  "isSuperAdmin": false,
+  "isUnitAdmin": false
 }
 ```
 
-The client middleware uses the authenticated user's `oid` as `subjectId`, forwards the original bearer token, and includes role IDs from the dedicated User Management identity. `subjectId` is null, `unitOrganizationId` is all-zero, and `roleIds` is empty for an anonymous caller. Access Control validates a bearer token against `DecisionEntra` for non-null subjects and checks the decision client key. The response is:
+The client middleware uses the authenticated user's `oid` as `subjectId`, forwards the original bearer token, and includes role IDs and duties from the dedicated User Management identity. `subjectId` is null, `unitOrganizationId` is all-zero, `roleIds` is empty, and both duty flags are false for an anonymous caller. Access Control validates a bearer token against `DecisionEntra` for non-null subjects and checks the decision client key. A missing policy denies; a public policy permits. For a protected policy, a true `isSuperAdmin` or `isUnitAdmin` flag permits before entitlement comparison. `isUnitAdmin` is asserted for the selected UO only. The service trusts a client holding a valid decision key to assert these flags; it does not independently check them with User Management on ordinary decisions. The response is:
 
 ```json
 { "permit": true, "reason": "Permit", "authenticationRequired": false }
 ```
 
-The evaluator looks up the policy keyed by tenant, UO ID, module, HTTP method, and normalized route template. If no UO-specific policy exists, it may use a global public policy with the all-zero UO ID; a specific policy takes precedence. A missing policy denies. A protected policy requires a subject and at least one active entitlement ID granted to a forwarded role ID in that tenant and UO. The required entitlement IDs use **OR** semantics. An anonymous caller without a global public policy gets `authenticationRequired: true` and `401`; an authenticated caller with no policy gets `403`. Other Deny decisions return `403`. Decision transport or store failures return `503` from the client middleware. User Management resolves the user before this decision call; its cached role claims may remain effective for up to five seconds after a role change.
+The evaluator looks up the policy keyed by tenant, UO ID, module, HTTP method, and normalized route template. If no UO-specific policy exists, it may use a global public policy with the all-zero UO ID; a specific policy takes precedence. A missing policy denies. A protected policy requires a subject and nonzero UO ID. An asserted `isSuperAdmin` or `isUnitAdmin` duty then permits; otherwise, at least one active entitlement ID must be granted to a forwarded role ID in that tenant and UO. The required entitlement IDs use **OR** semantics. An anonymous caller without a global public policy gets `authenticationRequired: true` and `401`; an authenticated caller with no policy gets `403`. Other Deny decisions return `403`. Decision transport or store failures return `503` from the client middleware. User Management resolves the user before this decision call; its cached role claims and duties may remain effective for up to five seconds after a change.
 
 ## Entitlement catalog
 

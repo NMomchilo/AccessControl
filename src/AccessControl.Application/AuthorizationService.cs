@@ -90,6 +90,14 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
             return new DecisionResponse(false, "Unit organization required");
         }
 
+        if (request.IsSuperAdmin || request.IsUnitAdmin)
+        {
+            string duty = request.IsSuperAdmin ? "SuperAdmin" : "Unit Admin";
+            logger.LogInformation("Protected endpoint permitted by {Duty} duty for {TenantId} {UnitOrganizationId} {Module} {HttpMethod} {RouteTemplate}",
+                duty, key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate);
+            return new DecisionResponse(true, $"{duty} duty");
+        }
+
         if (request.RoleIds is null || request.RoleIds.Count > 16 || request.RoleIds.Any(id => id == Guid.Empty))
             return new DecisionResponse(false, "Invalid role IDs");
         Guid[] roleIds = request.RoleIds.Distinct().ToArray();

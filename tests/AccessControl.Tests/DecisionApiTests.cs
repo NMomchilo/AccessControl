@@ -39,6 +39,28 @@ public sealed class DecisionApiTests
     }
 
     [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task PostDecision_AssertedDutyPermitsWithoutBusinessRolesAsync(bool isSuperAdmin, bool isUnitAdmin)
+    {
+        await using ApiFactory factory = new();
+        using HttpClient client = factory.CreateClient();
+        using HttpRequestMessage message = new(HttpMethod.Post, "/v1/decisions")
+        {
+            Content = JsonContent.Create(new DecisionRequest(
+                "aaaaaaaa-1111-1111-1111-111111111111", "customers", "GET", "/customers/{id}",
+                "tenant-a", Organization, [], isSuperAdmin, isUnitAdmin))
+        };
+        message.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
+
+        using HttpResponseMessage response = await client.SendAsync(message);
+        DecisionResponse? result = await response.Content.ReadFromJsonAsync<DecisionResponse>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(result?.Permit);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task PostDecision_RejectsMismatchedOrMissingBearerIdentityAsync(bool mismatchedOid)

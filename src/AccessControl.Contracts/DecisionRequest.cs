@@ -9,4 +9,6 @@ public sealed record DecisionRequest(
     string RouteTemplate,
     string TenantId,
     [property: JsonRequired] Guid UnitOrganizationId,
-    IReadOnlyList<Guid>? RoleIds = null);
+    IReadOnlyList<Guid>? RoleIds = null,
+    bool IsSuperAdmin = false,
+    bool IsUnitAdmin = false);

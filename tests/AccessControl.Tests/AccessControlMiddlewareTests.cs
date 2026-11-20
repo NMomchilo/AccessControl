@@ -68,6 +68,46 @@ public sealed class AccessControlMiddlewareTests
     }
 
     [Fact]
+    public async Task InvokeAsync_ForwardsOnlyMatchingUserManagementDutyClaimsAsync()
+    {
+        CapturingDecisionClient client = new();
+        AccessControlMiddleware middleware = CreateMiddleware(client);
+        DefaultHttpContext context = CreateContext();
+        ClaimsIdentity managed = context.User.Identities.Single(identity => identity.AuthenticationType == "UserManagement");
+        managed.AddClaim(new Claim("user_management_is_super_admin", "true"));
+        managed.AddClaim(new Claim("user_management_is_unit_admin", "true"));
+        context.User.AddIdentity(new ClaimsIdentity([
+            new Claim("user_management_is_super_admin", "true"),
+            new Claim("user_management_is_unit_admin", "true")], "OtherIdentity"));
+
+        await middleware.InvokeAsync(context);
+
+        string json = System.Text.Json.JsonSerializer.Serialize(client.Request,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Contains("\"isSuperAdmin\":true", json);
+        Assert.Contains("\"isUnitAdmin\":true", json);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_DoesNotForwardDutyForAnotherTenantAsync()
+    {
+        CapturingDecisionClient client = new();
+        AccessControlMiddleware middleware = CreateMiddleware(client);
+        DefaultHttpContext context = CreateContext();
+        ClaimsIdentity managed = context.User.Identities.Single(identity => identity.AuthenticationType == "UserManagement");
+        managed.RemoveClaim(managed.FindFirst("user_management_tenant_id")!);
+        managed.AddClaim(new Claim("user_management_tenant_id", "another-tenant"));
+        managed.AddClaim(new Claim("user_management_is_super_admin", "true"));
+        managed.AddClaim(new Claim("user_management_is_unit_admin", "true"));
+
+        await middleware.InvokeAsync(context);
+
+        Assert.False(client.Request?.IsSuperAdmin);
+        Assert.False(client.Request?.IsUnitAdmin);
+        Assert.Equal(Guid.Empty, client.Request?.UnitOrganizationId);
+    }
+
+    [Fact]
     public async Task InvokeAsync_DedicatedRoleClaim_IgnoresOtherRoleClaimsAsync()
     {
         CapturingDecisionClient client = new();

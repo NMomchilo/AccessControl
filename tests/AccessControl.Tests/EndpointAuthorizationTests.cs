@@ -204,6 +204,57 @@ public sealed class EndpointAuthorizationTests
         Assert.True(anonymous.AuthenticationRequired);
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task AdministrativeDutyPermitsExistingProtectedPolicyWithoutEntitlementsAsync(
+        bool isSuperAdmin, bool isUnitAdmin)
+    {
+        FakeEndpointStore store = new();
+        store.Policies.Add(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}",
+            false, [], OrganizationA));
+        string json = $$"""
+            {"subjectId":"{{Oid}}","module":"customers","httpMethod":"GET",
+             "routeTemplate":"/customers/{id}","tenantId":"tenant-a",
+             "unitOrganizationId":"{{OrganizationA}}","roleIds":[],
+             "isSuperAdmin":{{isSuperAdmin.ToString().ToLowerInvariant()}},
+             "isUnitAdmin":{{isUnitAdmin.ToString().ToLowerInvariant()}}}
+            """;
+        DecisionRequest request = System.Text.Json.JsonSerializer.Deserialize<DecisionRequest>(json,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+
+        DecisionResponse result = await Service(store).DecideAsync(request, CancellationToken.None);
+
+        Assert.True(result.Permit);
+    }
+
+    [Fact]
+    public async Task SuperAdminFlagDoesNotPermitMissingPolicyAsync()
+    {
+        DecisionRequest request = System.Text.Json.JsonSerializer.Deserialize<DecisionRequest>(
+            $$"""{"subjectId":"{{Oid}}","module":"customers","httpMethod":"GET","routeTemplate":"/missing","tenantId":"tenant-a","unitOrganizationId":"{{OrganizationA}}","isSuperAdmin":true}""",
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+
+        DecisionResponse result = await Service(new FakeEndpointStore()).DecideAsync(request, CancellationToken.None);
+
+        Assert.False(result.Permit);
+    }
+
+    [Fact]
+    public async Task AnonymousRequestCannotUseAdministrativeDutyFlagAsync()
+    {
+        FakeEndpointStore store = new();
+        store.Policies.Add(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}",
+            false, [], OrganizationA));
+        DecisionRequest request = new(null, "customers", "GET", "/customers/{id}", "tenant-a",
+            OrganizationA, [], IsSuperAdmin: true);
+
+        DecisionResponse result = await Service(store).DecideAsync(request, CancellationToken.None);
+
+        Assert.False(result.Permit);
+        Assert.True(result.AuthenticationRequired);
+    }
+
     [Fact]
     public async Task AnonymousWithoutMatchingPolicyRequiresAuthenticationAsync()
     {

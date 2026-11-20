@@ -127,7 +127,7 @@
           "Decisions"
         ],
         "summary": "Evaluate one endpoint request",
-        "description": "For a protected policy, Access Control evaluates role IDs forwarded by the consuming API after User Management enrichment. Non-null subjectId requires a matching validated Entra bearer token and a decision client key. Anonymous public decisions require the client key only. A valid key may request any tenant, unit organization, and module.",
+        "description": "Find an active endpoint policy first; no policy denies and public policies permit. For a protected policy, an authenticated caller with isSuperAdmin or isUnitAdmin is permitted before role entitlements are evaluated. SuperAdmin applies to every active UO in the user's application tenant; unit Admin applies only to the selected UO. The decision client key is trusted to assert role IDs and duty flags; Access Control does not independently verify those flags with User Management. Non-null subjectId requires a matching validated Entra bearer token. A valid key may request any tenant, unit organization, and module.",
         "operationId": "decideAccess",
         "security": [
           {
@@ -154,7 +154,9 @@
                 "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
                 "roleIds": [
                   "c4227c8a-16ef-eb3c-aedb-8197bf7f39c2"
-                ]
+                ],
+                "isSuperAdmin": false,
+                "isUnitAdmin": false
               }
             }
           }
@@ -1171,7 +1173,17 @@
               "type": "string",
               "format": "uuid"
             },
-            "description": "Role IDs from the authenticated User Management identity for this tenant and unit organization. Empty or omitted for anonymous public decisions."
+            "description": "Role IDs from the authenticated User Management identity for this tenant and unit organization. Empty or omitted for anonymous public decisions and administrative duty overrides."
+          },
+          "isSuperAdmin": {
+            "type": "boolean",
+            "default": false,
+            "description": "Client-asserted tenant SuperAdmin duty. A valid decision key and matching bearer token make this sufficient to permit an existing protected policy in the selected UO."
+          },
+          "isUnitAdmin": {
+            "type": "boolean",
+            "default": false,
+            "description": "Client-asserted Admin duty for the selected UO. A valid decision key and matching bearer token make this sufficient to permit an existing protected policy there."
           }
         }
       },
