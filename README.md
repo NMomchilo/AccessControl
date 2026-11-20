@@ -1,6 +1,6 @@
 # Access Control
 
-This .NET 10 repository contains the Access Control API and the `AccessControl.Client` and `AccessControl.Contracts` NuGet packages. The separate `UserManagement` repository owns users, unit organizations (UOs), UO memberships, business roles, and administrative duties. Access Control owns endpoint policies, an entitlement catalog, and entitlement grants to role IDs. It stores no user-to-role assignments.
+This .NET 10 repository contains the Access Control API. The `AccessControl.Client` and `AccessControl.Contracts` NuGet source and package tests live in the separate Shared repository. The separate `UserManagement` repository owns users, unit organizations (UOs), UO memberships, business roles, and administrative duties. Access Control owns endpoint policies, an entitlement catalog, and entitlement grants to role IDs. It stores no user-to-role assignments.
 
 ## Request flow
 
@@ -26,13 +26,14 @@ Administrator endpoints require the Access Control administrator key, a validate
 Install the .NET 10 SDK and Docker. From this repository root, start the SQL Server defined in [docker-compose.yml](docker-compose.yml) and then the service:
 
 ```powershell
+# The six Shared 0.12.0 NuGet files are included in .packages.
 docker compose up -d sqlserver
 dotnet run --project src/AccessControl.Service --launch-profile https
 ```
 
 Open `https://localhost:7219/swagger`. Development startup can apply the fresh first-version migration. The example configuration is in `src/AccessControl.Service/appsettings.Development.json`. Replace example keys and connection strings outside Development. `GET /health` is a liveness check; `GET /ready` checks database connectivity and returns `503` when it cannot connect. Neither GET probe needs an API key. Administrator API calls need the administrator key and validated Entra token; decision calls need a client key, and protected decisions need a bearer token whose `oid` matches `subjectId`.
 
-The local connection uses `localhost,1433`, database `AccessControlIsActiveLocalDev`, and the Docker compose `sa` password. Automatic migration runs **only in Development** when `AccessControlDatabase:ApplyMigrationsOnStartup` is true. This is a fresh first-version schema; an older local database made from a replaced migration is not upgraded in place. Run the [User Management service](../UserManagement/README.md) separately on port 5220, with its SQL Server on port 1434, before testing administrator operations or a consuming API's startup registration. Swagger UI is available only in Development; its specification is also served at `/openapi/access-control.v1.json` then.
+The local connection uses `localhost,1433`, database `AccessControlIsActiveLocalDev`, and the Docker compose `sa` password. Automatic migration runs **only in Development** when `AccessControlDatabase:ApplyMigrationsOnStartup` is true. This is a fresh first-version schema; an older local database made from a replaced migration is not upgraded in place. Run the User Management service separately on port 5220, with its SQL Server on port 1434, before testing administrator operations or a consuming API's startup registration. Swagger UI is available only in Development; its specification is also served at `/openapi/access-control.v1.json` then.
 
 The local Access Control decision key matches the [CustomerApi settings](samples/CustomerApi/appsettings.json); its User Management administrator lookup key matches User Management's Development settings. A running API is not enough for a role-based protected decision: the policy, entitlement, role grant, and provisioned user must also exist. Startup registration creates missing protected policies with no entitlements, so those routes initially deny.
 
@@ -40,10 +41,14 @@ The local Access Control decision key matches the [CustomerApi settings](samples
 
 ## NuGet packages and consuming APIs
 
+The service, tests, benchmarks, and CustomerApi sample use versioned `0.12.0` NuGet packages from Shared. This repository includes the six package files in `.packages`: `AccessControl.Client`, `AccessControl.Contracts`, `UserManagement.Client`, `UserManagement.Contracts`, `Common.Persistence`, and `AdminManagement.Security`. Their versions must match the project references. When Shared releases a new version, pack it, update the project references, and replace these package files. For example, after packing Shared in any location:
+
 ```powershell
-dotnet pack src/AccessControl.Contracts -c Release -o artifacts/packages
-dotnet pack src/AccessControl.Client -c Release -o artifacts/packages
+Copy-Item 'C:\path\to\Shared\packages\*.nupkg' .packages\
+dotnet restore AccessControl.sln
 ```
+
+`NuGet.config` maps these package IDs to `.packages`; no sibling checkout or package download is needed after cloning this repository with the package files committed. Once a private feed is chosen, replace that local source with the feed URL and supply its credentials through CI secrets; do not commit credentials.
 
 Install matching `AccessControl.Client` and `AccessControl.Contracts` versions (currently 0.12.0). A consuming API using the full flow also installs matching `UserManagement.Client` and `UserManagement.Contracts` packages. The host registers both clients and configures JWT authentication. The relevant ordering is:
 
@@ -73,7 +78,7 @@ Set `AccessControl:Registration` to the consuming project's tenant ID, UO ID/nam
 
 ## Build, tests, and benchmarks
 
-Place this repository beside `UserManagement` under the same parent directory. The middleware flow test, CustomerApi sample, and full access-flow benchmark reference the sibling User Management client source by default, so local tests do not require prepacked NuGets. To verify the versioned package integration instead, first pack `UserManagement.Client` and `UserManagement.Contracts` 0.12.0 into the sibling repository's `artifacts/packages`, then run `dotnet test AccessControl.sln -c Release -p:UsePublishedClientPackages=true`. The flow test uses fake service clients; the access-flow benchmark calls both running services over HTTP. Coverage reports only this repository's assemblies.
+Clone this repository anywhere; the committed `.packages` files are used during restore. Every project in this solution uses versioned package references for Shared code, including the middleware flow test and access-flow benchmark. The flow test uses fake service clients; the access-flow benchmark calls both running services over HTTP. Package-only tests and coverage live in Shared; this repository retains API, persistence, and flow tests. Build the Docker image from this repository root with `docker build -f src/AccessControl.Service/Dockerfile -t access-control:local .`.
 
 ```powershell
 dotnet test AccessControl.sln -c Release
@@ -81,4 +86,4 @@ dotnet test tests/AccessControl.Tests -c Release --collect:"XPlat Code Coverage"
 dotnet run --project benchmarks/AccessControl.Benchmarks -c Release -- --requests 5000 --concurrency 1,16,64
 ```
 
-See [benchmark instructions](benchmarks/README.md) and the [2026-11-20 live SQL Server results](docs/sqlserver-rancher-benchmarks-2026-11-20.md). Tests use SQLite and in-process HTTP. Validate migrations, revocation delay, Entra configuration, and load against dedicated SQL Server staging deployments before production use. The small `Common.Persistence` and `AdminManagement.Security` projects are maintained locally in this repository as server-only support code. Database writes require a validated actor `oid` for `LastUpdateUser`; no runtime fallback actor exists.
+See [benchmark instructions](benchmarks/README.md) and the [2026-11-20 live SQL Server results](docs/sqlserver-rancher-benchmarks-2026-11-20.md). Tests use SQLite and in-process HTTP. Validate migrations, revocation delay, Entra configuration, and load against dedicated SQL Server staging deployments before production use. Database writes require a validated actor `oid` for `LastUpdateUser`; no runtime fallback actor exists.

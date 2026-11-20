@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -23,14 +23,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\AccessControl.Application\AccessControl.Application.csproj" />
-    <ProjectReference Include="..\..\src\AdminManagement.Security\AdminManagement.Security.csproj" />
+    <PackageReference Include="AdminManagement.Security" Version="0.12.0" />
     <ProjectReference Include="..\..\src\AccessControl.Domain\AccessControl.Domain.csproj" />
-    <ProjectReference Include="..\..\src\AccessControl.Contracts\AccessControl.Contracts.csproj" />
-    <ProjectReference Include="..\..\src\AccessControl.Client\AccessControl.Client.csproj" />
+    <PackageReference Include="AccessControl.Contracts" Version="0.12.0" />
+    <PackageReference Include="AccessControl.Client" Version="0.12.0" />
     <ProjectReference Include="..\..\src\AccessControl.Service\AccessControl.Service.csproj" />
-    <ProjectReference Include="..\..\..\UserManagement\src\UserManagement.Client\UserManagement.Client.csproj" Condition="'$(UsePublishedClientPackages)' != 'true'" />
-    <PackageReference Include="UserManagement.Client" Version="0.12.0" Condition="'$(UsePublishedClientPackages)' == 'true'" />
-    <PackageReference Include="UserManagement.Contracts" Version="0.12.0" Condition="'$(UsePublishedClientPackages)' == 'true'" />
+    <PackageReference Include="UserManagement.Client" Version="0.12.0" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,13 @@
+**
+!NuGet.config
+!.packages/
+!.packages/*.nupkg
+!src/
+!src/**
+**/bin
+**/obj
+**/appsettings.Development.json
+**/.env
+**/*.pfx
+**/*.pem
+**/*.key

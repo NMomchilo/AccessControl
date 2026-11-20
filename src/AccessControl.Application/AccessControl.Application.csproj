@@ -1,8 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\AccessControl.Domain\AccessControl.Domain.csproj" />
-    <ProjectReference Include="..\AccessControl.Contracts\AccessControl.Contracts.csproj" />
+    <PackageReference Include="AccessControl.Contracts" Version="0.12.0" />
   </ItemGroup>
 
   <ItemGroup>

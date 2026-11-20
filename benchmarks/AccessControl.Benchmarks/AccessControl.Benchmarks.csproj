@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -16,7 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AccessControl.Service\AccessControl.Service.csproj" />
     <ProjectReference Include="..\..\src\AccessControl.Infrastructure\AccessControl.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\AccessControl.Contracts\AccessControl.Contracts.csproj" />
+    <PackageReference Include="AccessControl.Contracts" Version="0.12.0" />
   </ItemGroup>
 
 </Project>

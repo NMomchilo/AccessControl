@@ -12,16 +12,14 @@ EXPOSE 8081
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
-COPY ["NuGet.config", "."]
+COPY ["NuGet.config", "./"]
 COPY ["src/AccessControl.Service/AccessControl.Service.csproj", "src/AccessControl.Service/"]
 COPY ["src/AccessControl.Application/AccessControl.Application.csproj", "src/AccessControl.Application/"]
 COPY ["src/AccessControl.Domain/AccessControl.Domain.csproj", "src/AccessControl.Domain/"]
-COPY ["src/AccessControl.Contracts/AccessControl.Contracts.csproj", "src/AccessControl.Contracts/"]
 COPY ["src/AccessControl.Infrastructure/AccessControl.Infrastructure.csproj", "src/AccessControl.Infrastructure/"]
-COPY ["src/AdminManagement.Security/AdminManagement.Security.csproj", "src/AdminManagement.Security/"]
-COPY ["src/Common.Persistence/Common.Persistence.csproj", "src/Common.Persistence/"]
-RUN dotnet restore "./src/AccessControl.Service/AccessControl.Service.csproj" --source https://api.nuget.org/v3/index.json
-COPY . .
+COPY .packages/*.nupkg .packages/
+RUN dotnet restore "./src/AccessControl.Service/AccessControl.Service.csproj"
+COPY src/ src/
 WORKDIR "/src/src/AccessControl.Service"
 RUN dotnet build "./AccessControl.Service.csproj" -c $BUILD_CONFIGURATION -o /app/build --no-restore
 

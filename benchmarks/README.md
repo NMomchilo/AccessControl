@@ -1,6 +1,6 @@
 # Decision API load benchmark
 
-Fresh Rancher Desktop SQL Server decision, duty-mix, cache-sensitivity, and full middleware flow measurements are in [the 2026-11-20 report](../docs/sqlserver-rancher-benchmarks-2026-11-20.md), with links to every raw run. [The 2026-11-18 report](../docs/sqlserver-live-benchmarks-2026-11-18.md) is historical. `LocalIdentityProvider` supplies short-lived, locally signed JWTs over loopback HTTPS for development-only tests.
+Fresh Rancher Desktop SQL Server decision, duty-mix, cache-sensitivity, and full middleware flow measurements are in [the 2026-11-20 report](../docs/sqlserver-rancher-benchmarks-2026-11-20.md), with links to every raw run. The [support-package move flow check](../docs/sqlserver-support-package-flow-2026-11-20.md) reran the live two-service path and administrator writes. [The 2026-11-18 report](../docs/sqlserver-live-benchmarks-2026-11-18.md) is historical. `LocalIdentityProvider` supplies short-lived, locally signed JWTs over loopback HTTPS for development-only tests.
 
 Run from the repository root with a Release build:
 
@@ -71,4 +71,4 @@ The [UO benchmark report](../docs/unit-organization-benchmark-2026-11-10.md) con
 
 ## User Management benchmark
 
-The direct user-resolution and cache benchmark moved to the separate `UserManagement` repository. Local builds use its sibling client source by default. Set `-p:UsePublishedClientPackages=true` after packing the matching 0.12.0 packages to benchmark the NuGet integration. The combined access-flow benchmark above calls both running services.
+The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses the `0.12.0` client NuGets from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.

@@ -31,4 +31,25 @@ public sealed class AccessControlApiExceptionHandlerTests
         context.Response.Body.Position = 0;
         Assert.DoesNotContain("sensitive", await new StreamReader(context.Response.Body).ReadToEndAsync());
     }
+
+    [Theory]
+    [InlineData(typeof(AccessControl.Application.EntitlementConflictException),
+        HttpStatusCode.Conflict, "Entitlement conflict")]
+    [InlineData(typeof(AccessControl.Service.Security.AdminLookupUnavailableException),
+        HttpStatusCode.ServiceUnavailable, "Administrator lookup unavailable")]
+    public async Task TryHandleAsync_MapsKnownFailuresWithoutLeakingDetailsAsync(Type exceptionType,
+        HttpStatusCode expectedStatus, string expectedTitle)
+    {
+        DefaultHttpContext context = new();
+        context.Response.Body = new MemoryStream();
+        ApiExceptionHandler handler = new(NullLogger<ApiExceptionHandler>.Instance);
+        Exception failure = (Exception)Activator.CreateInstance(exceptionType, "sensitive detail")!;
+
+        Assert.True(await handler.TryHandleAsync(context, failure, CancellationToken.None));
+        context.Response.Body.Position = 0;
+        ProblemDetails? result = await System.Text.Json.JsonSerializer.DeserializeAsync<ProblemDetails>(
+            context.Response.Body, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Equal((int)expectedStatus, context.Response.StatusCode);
+        Assert.Equal(expectedTitle, result?.Title);
+    }
 }

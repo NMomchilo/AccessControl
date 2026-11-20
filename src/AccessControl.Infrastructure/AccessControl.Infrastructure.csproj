@@ -1,9 +1,9 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\AccessControl.Application\AccessControl.Application.csproj" />
     <ProjectReference Include="..\AccessControl.Domain\AccessControl.Domain.csproj" />
-    <ProjectReference Include="..\Common.Persistence\Common.Persistence.csproj" />
+    <PackageReference Include="Common.Persistence" Version="0.12.0" />
   </ItemGroup>
 
   <ItemGroup>

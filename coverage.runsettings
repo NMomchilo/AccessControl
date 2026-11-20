@@ -7,8 +7,8 @@
           <Format>cobertura</Format>
           <!-- EF migrations and model snapshots are generated code. -->
           <ExcludeByFile>**/Migrations/*.cs</ExcludeByFile>
-          <!-- The sibling User Management source is referenced by flow tests; report this repository's code. -->
-          <Exclude>[UserManagement.*]*</Exclude>
+          <!-- Package coverage is measured by Shared/tests; keep this report service-only. -->
+          <Exclude>[UserManagement.*]*,[AccessControl.Client]*,[AccessControl.Contracts]*,[Common.Persistence]*,[AdminManagement.Security]*</Exclude>
         </Configuration>
       </DataCollector>
     </DataCollectors>

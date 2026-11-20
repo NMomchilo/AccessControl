@@ -1,4 +1,5 @@
 using AccessControl.Contracts;
+using AccessControl.Application;
 using AccessControl.Infrastructure.Caching;
 using AccessControl.Infrastructure.Database;
 using AccessControl.Service.Controllers;
@@ -14,6 +15,48 @@ namespace AccessControl.Tests;
 
 public sealed class CatalogRegistrationControllerTests
 {
+    [Fact]
+    public async Task Registration_ReturnsConflictWhenCatalogAlreadyConflictsAsync()
+    {
+        CatalogRegistrationController controller = new(new ConflictingCatalog());
+        DefaultHttpContext context = new();
+        context.Items[nameof(DecisionClientCredential)] = new DecisionClientCredential
+        {
+            CanRegisterCatalog = true
+        };
+        controller.ControllerContext = new ControllerContext { HttpContext = context };
+
+        IActionResult result = await controller.RegisterAsync(new CatalogRegistrationRequest(
+            "default", Guid.NewGuid(), "customers", "Customers",
+            [new CatalogEndpoint("GET", "/customers/{id}")]), default);
+
+        Assert.IsType<ConflictResult>(result);
+    }
+
+    private sealed class ConflictingCatalog : ICatalogRegistrationService
+    {
+        public Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request,
+            CancellationToken cancellationToken) => throw new CatalogRegistrationConflictException();
+    }
+
+    [Fact]
+    public async Task Registration_RequiresOptInAndNonemptyOrganizationAsync()
+    {
+        CatalogRegistrationController controller = new(null!);
+        DefaultHttpContext context = new();
+        controller.ControllerContext = new ControllerContext { HttpContext = context };
+        CatalogRegistrationRequest request = new("default", Guid.NewGuid(), "customers", "Customers",
+            [new CatalogEndpoint("GET", "/customers/{id}")]);
+
+        Assert.IsType<ForbidResult>(await controller.RegisterAsync(request, default));
+        context.Items[nameof(DecisionClientCredential)] = new DecisionClientCredential
+        {
+            CanRegisterCatalog = true
+        };
+        Assert.IsType<BadRequestResult>(await controller.RegisterAsync(
+            request with { UnitOrganizationId = Guid.Empty }, default));
+    }
+
     [Fact]
     public async Task OptedInClientRegistersOrganizationProvidedByApiAsync()
     {

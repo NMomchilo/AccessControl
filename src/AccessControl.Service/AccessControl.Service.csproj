@@ -10,10 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AdminManagement.Security\AdminManagement.Security.csproj" />
+    <PackageReference Include="AdminManagement.Security" Version="0.12.0" />
     <ProjectReference Include="..\AccessControl.Application\AccessControl.Application.csproj" />
     <ProjectReference Include="..\AccessControl.Infrastructure\AccessControl.Infrastructure.csproj" />
-    <ProjectReference Include="..\AccessControl.Contracts\AccessControl.Contracts.csproj" />
+    <PackageReference Include="AccessControl.Contracts" Version="0.12.0" />
   </ItemGroup>
 
   <ItemGroup>
