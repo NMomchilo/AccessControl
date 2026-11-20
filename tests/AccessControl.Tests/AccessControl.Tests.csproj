@@ -28,8 +28,9 @@
     <ProjectReference Include="..\..\src\AccessControl.Contracts\AccessControl.Contracts.csproj" />
     <ProjectReference Include="..\..\src\AccessControl.Client\AccessControl.Client.csproj" />
     <ProjectReference Include="..\..\src\AccessControl.Service\AccessControl.Service.csproj" />
-    <PackageReference Include="UserManagement.Client" Version="0.12.0" />
-    <PackageReference Include="UserManagement.Contracts" Version="0.12.0" />
+    <ProjectReference Include="..\..\..\UserManagement\src\UserManagement.Client\UserManagement.Client.csproj" Condition="'$(UsePublishedClientPackages)' != 'true'" />
+    <PackageReference Include="UserManagement.Client" Version="0.12.0" Condition="'$(UsePublishedClientPackages)' == 'true'" />
+    <PackageReference Include="UserManagement.Contracts" Version="0.12.0" Condition="'$(UsePublishedClientPackages)' == 'true'" />
   </ItemGroup>
 
 </Project>

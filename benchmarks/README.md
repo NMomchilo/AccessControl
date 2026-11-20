@@ -17,9 +17,20 @@ Local mode runs the service in an ASP.NET Core in-process test server with two s
 
 The local test server skips the real network and TLS. It uses a test-only bearer handler for the fixed benchmark oid. SQLite is not SQL Server and its concurrency behavior differs. Logging providers are disabled so console output does not dominate the measurement. The default workload repeats **one** tenant, UO, route, and user combination, making the cache results a high-hit-rate case. These numbers are useful for comparing code changes on the same machine, not for predicting production capacity.
 
+To exercise the current administrative override as well as role grants, run the synthetic [local duty mix](AccessControl.Benchmarks/workloads/local-duty-mix.json):
+
+```powershell
+dotnet run --project benchmarks/AccessControl.Benchmarks -c Release -- `
+  --workload-file benchmarks/AccessControl.Benchmarks/workloads/local-duty-mix.json `
+  --requests 5000 --concurrency 1,16,64 `
+  --output artifacts/benchmarks/local-duty-mix.json
+```
+
+The weights are illustrative, not observed traffic. The direct decision benchmark sends role IDs and duty flags as JSON. It does not resolve duties through User Management; the full middleware flow below does that. A decision key holder can assert these flags under the current trust model.
+
 ## Benchmark a staging deployment
 
-Apply the EF migrations to a dedicated Access Control staging database. Create an active `benchmark.read` entitlement for tenant `benchmark-tenant` and UO ID `33333333-3333-3333-3333-333333333333`, and use its returned ID in a protected policy for module `benchmark`, method `GET`, route `/benchmark/{id}`. Grant the entitlement to the role ID supplied by the benchmark request in Access Control. Use an Entra access token for the request oid with the audience configured in `DecisionEntra`, and a decision client key scoped to this module, tenant, and UO. Then run:
+Apply the EF migrations to a dedicated Access Control staging database. Create an active `benchmark.read` entitlement for tenant `benchmark-tenant` and UO ID `33333333-3333-3333-3333-333333333333`, and use its returned ID in a protected policy for module `benchmark`, method `GET`, route `/benchmark/{id}`. Grant the entitlement to the role ID supplied by the benchmark request in Access Control. Use an Entra access token for the request oid with the audience configured in `DecisionEntra`, and a valid decision client key. Then run:
 
 ```powershell
 $env:AccessControlBenchmark__DecisionKey = '<staging decision key>'
@@ -34,7 +45,7 @@ Remote mode uses a real HTTPS connection to Access Control only. The request sup
 
 The benchmark sends only decision reads. It does not alter policies or role grants.
 
-For a remote mix of routes and users, pass a JSON workload file. Each case has a name, weight, `DecisionRequest` with `subjectId`, `unitOrganizationId`, and `roleIds`, and expected Permit/Deny result. The harness cycles through cases according to their weights and fails on an unexpected decision. The single bearer token must match every non-null `subjectId` in the workload; use separate runs for different users. Seed matching Access Control grants for permitted cases:
+For a remote mix of routes and users, pass a JSON workload file. Each case has a name, weight, `DecisionRequest` with `subjectId`, `unitOrganizationId`, `roleIds`, optional `isSuperAdmin` and `isUnitAdmin`, and expected Permit/Deny result. The harness cycles through cases according to their weights and fails on an unexpected decision. The single bearer token must match every non-null `subjectId` in the workload; use separate runs for different users. Seed matching Access Control grants for role-permitted cases:
 
 ```powershell
 dotnet run --project benchmarks/AccessControl.Benchmarks -c Release -- `
@@ -48,7 +59,7 @@ The [available-policy benchmark report](../docs/available-policy-mix-benchmark-2
 
 ## Full JWT → User Management → Access Control → controller flow
 
-The [access-flow benchmark](AccessFlow.Benchmarks/Program.cs) starts a temporary consuming API, validates locally signed RS256 JWTs, adds a benchmark-only `Gateway` identity for UO ID `33333333-3333-3333-3333-333333333333`, runs both real middleware packages, calls the two live services backed by Docker SQL Server, and checks that the controller ran. It measures one cached user and a configurable set of existing users. Create the UO and role explicitly, then provision each oid and UO membership and assign the role ID through User Management administrator APIs. Put one oid GUID per line in a text file. Configure the four service URL/key settings as environment variables. Seed `GET /integration/{id}` in the same UO with an `integration.view` grant for that role ID in Access Control. Then run:
+The [access-flow benchmark](AccessFlow.Benchmarks/Program.cs) starts a temporary consuming API, validates locally signed RS256 JWTs, adds a benchmark-only `Gateway` identity for UO ID `33333333-3333-3333-3333-333333333333`, runs both real middleware clients, calls the two live services backed by Docker SQL Server, and checks that the controller ran. It measures one cached user and a configurable set of existing users. Create the UO and role explicitly, then provision each oid and UO membership and assign the role ID through User Management administrator APIs. Put one oid GUID per line in a text file. Configure the four service URL/key settings as environment variables. Seed `GET /integration/{id}` in the same UO with an `integration.view` grant for that role ID in Access Control. This benchmark exercises the role-grant path; duty overrides are covered by the direct decision workload above. Then run:
 
 ```powershell
 dotnet run --project benchmarks/AccessFlow.Benchmarks -c Release -- `
@@ -60,4 +71,4 @@ The [UO benchmark report](../docs/unit-organization-benchmark-2026-11-10.md) con
 
 ## User Management benchmark
 
-The direct user-resolution and cache benchmark moved to the separate `UserManagement` repository. Pack its Client and Contracts projects before restoring this repository locally. The combined access-flow benchmark above remains here and calls both running services.
+The direct user-resolution and cache benchmark moved to the separate `UserManagement` repository. Local builds use its sibling client source by default. Set `-p:UsePublishedClientPackages=true` after packing the matching 0.12.0 packages to benchmark the NuGet integration. The combined access-flow benchmark above calls both running services.

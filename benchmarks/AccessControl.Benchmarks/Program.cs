@@ -248,11 +248,6 @@ internal static class Program
             {
                 throw new ArgumentException("Remote URL must be an absolute HTTPS URL.");
             }
-            if (workloadFile is not null && remoteUrl is null)
-            {
-                throw new ArgumentException("--workload-file requires --remote-url.");
-            }
-
             return new Settings(requests, concurrency, remoteUrl, workloadFile, output);
         }
     }

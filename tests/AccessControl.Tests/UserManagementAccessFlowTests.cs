@@ -53,6 +53,7 @@ public sealed class UserManagementAccessFlowTests
         Assert.True(controllerRan);
         Assert.Equal(Organization, decisionClient.Request?.UnitOrganizationId);
         Assert.Equal("9155ff4d-2708-4770-b87e-e238645ec5df", decisionClient.Request?.SubjectId);
+        Assert.Equal([Reader], decisionClient.Request?.RoleIds);
         Assert.Equal(isSuperAdmin, decisionClient.Request?.IsSuperAdmin);
         Assert.Equal(isUnitAdmin, decisionClient.Request?.IsUnitAdmin);
     }

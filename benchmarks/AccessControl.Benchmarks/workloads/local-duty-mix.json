@@ -1,0 +1,60 @@
+[
+  {
+    "name": "business role permits",
+    "weight": 7,
+    "expectedPermit": true,
+    "request": {
+      "subjectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
+      "module": "benchmark",
+      "httpMethod": "GET",
+      "routeTemplate": "/benchmark/{id}",
+      "tenantId": "benchmark-tenant",
+      "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+      "roleIds": ["10954aa4-7532-80de-a80e-a7be3ad4c991"]
+    }
+  },
+  {
+    "name": "super admin permits without role",
+    "weight": 1,
+    "expectedPermit": true,
+    "request": {
+      "subjectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
+      "module": "benchmark",
+      "httpMethod": "GET",
+      "routeTemplate": "/benchmark/{id}",
+      "tenantId": "benchmark-tenant",
+      "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+      "roleIds": [],
+      "isSuperAdmin": true
+    }
+  },
+  {
+    "name": "unit admin permits without role",
+    "weight": 1,
+    "expectedPermit": true,
+    "request": {
+      "subjectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
+      "module": "benchmark",
+      "httpMethod": "GET",
+      "routeTemplate": "/benchmark/{id}",
+      "tenantId": "benchmark-tenant",
+      "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+      "roleIds": [],
+      "isUnitAdmin": true
+    }
+  },
+  {
+    "name": "roleless user denied",
+    "weight": 1,
+    "expectedPermit": false,
+    "request": {
+      "subjectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
+      "module": "benchmark",
+      "httpMethod": "GET",
+      "routeTemplate": "/benchmark/{id}",
+      "tenantId": "benchmark-tenant",
+      "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
+      "roleIds": []
+    }
+  }
+]

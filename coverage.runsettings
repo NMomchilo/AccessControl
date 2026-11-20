@@ -7,6 +7,8 @@
           <Format>cobertura</Format>
           <!-- EF migrations and model snapshots are generated code. -->
           <ExcludeByFile>**/Migrations/*.cs</ExcludeByFile>
+          <!-- The sibling User Management source is referenced by flow tests; report this repository's code. -->
+          <Exclude>[UserManagement.*]*</Exclude>
         </Configuration>
       </DataCollector>
     </DataCollectors>
