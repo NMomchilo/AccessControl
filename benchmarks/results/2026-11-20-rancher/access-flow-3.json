@@ -1,0 +1,77 @@
+{
+  "TimestampUtc": "2026-11-20T14:16:23.9311976+00:00",
+  "Runtime": ".NET 10.0.10",
+  "Os": "Microsoft Windows 10.0.22631",
+  "ProcessorCount": 20,
+  "Authentication": "Local HTTPS test authority RS256 JWT and benchmark Gateway identity, validated on every request",
+  "Settings": {
+    "Requests": 1000,
+    "Concurrency": [
+      1,
+      16
+    ],
+    "UserCount": 2,
+    "UserIdsFile": "D:\\git\\back\\ACNugServ\\benchmarks\\results\\2026-11-20-rancher\\provisioned-oids.txt",
+    "Output": "D:\\git\\back\\ACNugServ\\benchmarks\\results\\2026-11-20-rancher\\access-flow-3.json"
+  },
+  "ColdValidation": {
+    "ElapsedMs": 161.8157,
+    "UserResolutions": 1,
+    "AccessDecisions": 1,
+    "ControllerCalls": 1
+  },
+  "Results": [
+    {
+      "Scenario": "one warm user",
+      "Concurrency": 1,
+      "Requests": 1000,
+      "RequestsPerSecond": 1060.4956565809641,
+      "P50Ms": 0.8865,
+      "P95Ms": 1.2383,
+      "P99Ms": 1.7676,
+      "UserResolutions": 0,
+      "RevisionPolls": 1,
+      "AccessDecisions": 1000,
+      "ControllerCalls": 1000
+    },
+    {
+      "Scenario": "2 existing users",
+      "Concurrency": 1,
+      "Requests": 1000,
+      "RequestsPerSecond": 1080.4330548553148,
+      "P50Ms": 0.8433,
+      "P95Ms": 1.4645,
+      "P99Ms": 2.0353,
+      "UserResolutions": 0,
+      "RevisionPolls": 1,
+      "AccessDecisions": 1000,
+      "ControllerCalls": 1000
+    },
+    {
+      "Scenario": "one warm user",
+      "Concurrency": 16,
+      "Requests": 1000,
+      "RequestsPerSecond": 10420.216052759637,
+      "P50Ms": 1.1864,
+      "P95Ms": 3.1949,
+      "P99Ms": 8.9246,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 1000,
+      "ControllerCalls": 1000
+    },
+    {
+      "Scenario": "2 existing users",
+      "Concurrency": 16,
+      "Requests": 1000,
+      "RequestsPerSecond": 12918.528011244287,
+      "P50Ms": 1.1555,
+      "P95Ms": 1.7189,
+      "P99Ms": 2.7265,
+      "UserResolutions": 0,
+      "RevisionPolls": 0,
+      "AccessDecisions": 1000,
+      "ControllerCalls": 1000
+    }
+  ]
+}

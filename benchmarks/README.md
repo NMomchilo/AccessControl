@@ -1,6 +1,6 @@
 # Decision API load benchmark
 
-New live SQL Server decision and full middleware flow measurements are in [the 2026-11-18 report](../docs/sqlserver-live-benchmarks-2026-11-18.md). `LocalIdentityProvider` supplies short-lived, locally signed JWTs over loopback HTTPS for this development-only test.
+Fresh Rancher Desktop SQL Server decision, duty-mix, cache-sensitivity, and full middleware flow measurements are in [the 2026-11-20 report](../docs/sqlserver-rancher-benchmarks-2026-11-20.md), with links to every raw run. [The 2026-11-18 report](../docs/sqlserver-live-benchmarks-2026-11-18.md) is historical. `LocalIdentityProvider` supplies short-lived, locally signed JWTs over loopback HTTPS for development-only tests.
 
 Run from the repository root with a Release build:
 
