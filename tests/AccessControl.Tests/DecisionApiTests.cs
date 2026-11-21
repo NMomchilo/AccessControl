@@ -27,7 +27,7 @@ public sealed class DecisionApiTests
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage message = new(HttpMethod.Post, "/v1/decisions")
         {
-            Content = JsonContent.Create(new DecisionRequest("aaaaaaaa-1111-1111-1111-111111111111", "customers", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]))
+            Content = JsonContent.Create(new DecisionRequest("aaaaaaaa-1111-1111-1111-111111111111", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]))
         };
         message.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
 
@@ -48,7 +48,7 @@ public sealed class DecisionApiTests
         using HttpRequestMessage message = new(HttpMethod.Post, "/v1/decisions")
         {
             Content = JsonContent.Create(new DecisionRequest(
-                "aaaaaaaa-1111-1111-1111-111111111111", "customers", "GET", "/customers/{id}",
+                "aaaaaaaa-1111-1111-1111-111111111111", "GET", "/customers/{id}",
                 "tenant-a", Organization, [], isSuperAdmin, isUnitAdmin))
         };
         message.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
@@ -71,8 +71,7 @@ public sealed class DecisionApiTests
         using HttpRequestMessage message = new(HttpMethod.Post, "/v1/decisions")
         {
             Content = JsonContent.Create(new DecisionRequest(
-                mismatchedOid ? Guid.NewGuid().ToString("D") : "aaaaaaaa-1111-1111-1111-111111111111",
-                "customers", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]))
+                mismatchedOid ? Guid.NewGuid().ToString("D") : "aaaaaaaa-1111-1111-1111-111111111111", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]))
         };
         message.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
 
@@ -86,7 +85,7 @@ public sealed class DecisionApiTests
     {
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
-        CreateEntitlementRequest request = new("tenant-a", Organization, "customers.export", "Export customers");
+        CreateEntitlementRequest request = new("tenant-a", Organization, "Export customers");
         using HttpRequestMessage denied = new(HttpMethod.Post, "/v1/entitlements")
         {
             Content = JsonContent.Create(request)
@@ -163,7 +162,7 @@ public sealed class DecisionApiTests
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage message = new(HttpMethod.Post, "/v1/decisions")
         {
-            Content = JsonContent.Create(new DecisionRequest("aaaaaaaa-1111-1111-1111-111111111111", "customers", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]))
+            Content = JsonContent.Create(new DecisionRequest("aaaaaaaa-1111-1111-1111-111111111111", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]))
         };
         message.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
 
@@ -180,7 +179,7 @@ public sealed class DecisionApiTests
         {
             Content = JsonContent.Create(new
             {
-                subjectId = "aaaaaaaa-1111-1111-1111-111111111111", module = "customers",
+                subjectId = "aaaaaaaa-1111-1111-1111-111111111111",
                 httpMethod = "GET", routeTemplate = "/customers/{id}", tenantId = "tenant-a"
             })
         };
@@ -199,7 +198,7 @@ public sealed class DecisionApiTests
         {
             Content = JsonContent.Create(new
             {
-                tenantId = "tenant-a", module = "customers", httpMethod = "GET",
+                tenantId = "tenant-a",  httpMethod = "GET",
                 routeTemplate = "/customers/{id}", isPublic = true,
                 requiredEntitlementIds = Array.Empty<Guid>()
             })
@@ -216,7 +215,7 @@ public sealed class DecisionApiTests
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage message = new(HttpMethod.Get,
-            $"/v1/policies?tenantId=tenant-a&unitOrganizationId={Organization:D}&module=customers&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D");
+            $"/v1/policies?tenantId=tenant-a&unitOrganizationId={Organization:D}&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D");
         message.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
 
         using HttpResponseMessage response = await client.SendAsync(message);
@@ -233,7 +232,7 @@ public sealed class DecisionApiTests
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage message = new(HttpMethod.Get,
-            "/v1/policies?tenantId=tenant-a&module=customers&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D");
+            "/v1/policies?tenantId=tenant-a&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D");
         message.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
 
         using HttpResponseMessage response = await client.SendAsync(message);
@@ -246,12 +245,12 @@ public sealed class DecisionApiTests
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
         using HttpResponseMessage policySaved = await SendAdminAsync(client, HttpMethod.Put, "/v1/policies",
-            new PolicyRequest("tenant-a", "customers", "GET", "/status", true, [], Guid.Empty));
+            new PolicyRequest("tenant-a", "GET", "/status", true, [], Guid.Empty));
         using HttpResponseMessage protectedWithoutOrganization = await SendAdminAsync(client, HttpMethod.Put, "/v1/policies",
-            new PolicyRequest("tenant-a", "customers", "GET", "/customers/{id}", false,
+            new PolicyRequest("tenant-a", "GET", "/customers/{id}", false,
                 [TestEntitlements.View], Guid.Empty));
         using HttpResponseMessage policyDeleted = await SendAdminAsync(client, HttpMethod.Delete, "/v1/policies",
-            new PolicyKeyRequest("tenant-a", "customers", "GET", "/status", Guid.Empty));
+            new PolicyKeyRequest("tenant-a", "GET", "/status", Guid.Empty));
         using HttpResponseMessage grantSaved = await SendAdminAsync(client, HttpMethod.Put, "/v1/roles/entitlements",
             new RoleEntitlementsRequest("tenant-a", Advisor, [TestEntitlements.View], Organization));
         using HttpResponseMessage grantWithoutOrganization = await SendAdminAsync(client, HttpMethod.Put,
@@ -303,11 +302,11 @@ public sealed class DecisionApiTests
         Assert.Equal(HttpStatusCode.Unauthorized, missingKey.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, decisionKey.StatusCode);
         Assert.Equal(HttpStatusCode.OK, all.StatusCode);
-        Assert.Equal(["customers.view"], allPage?.Items.Select(item => item.Code));
+        Assert.Equal(["customers.view"], allPage?.Items.Select(item => item.DisplayName));
         Assert.Equal(2, allPage?.TotalCount);
         Assert.Equal(1, allPage?.PageSize);
         Assert.Equal(HttpStatusCode.OK, scoped.StatusCode);
-        Assert.Equal(["customers.view"], scopedPage?.Items.Select(item => item.Code));
+        Assert.Equal(["customers.view"], scopedPage?.Items.Select(item => item.DisplayName));
         Assert.Equal(1, scopedPage?.TotalCount);
     }
 
@@ -383,9 +382,9 @@ public sealed class DecisionApiTests
 
     private sealed class FakeStore : IAuthorizationStore
     {
-        public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken) =>
-            Task.FromResult<EndpointPolicy?>(tenantId == "tenant-a" && unitOrganizationId == Organization && module == "customers" && httpMethod == "GET" && routeTemplate == "/customers/{id}"
-                ? new EndpointPolicy(tenantId, module, httpMethod, routeTemplate, false, [TestEntitlements.View], Organization) : null);
+        public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId,  string httpMethod, string routeTemplate, CancellationToken cancellationToken) =>
+            Task.FromResult<EndpointPolicy?>(tenantId == "tenant-a" && unitOrganizationId == Organization && httpMethod == "GET" && routeTemplate == "/customers/{id}"
+                ? new EndpointPolicy(tenantId, httpMethod, routeTemplate, false, [TestEntitlements.View], Organization) : null);
 
         public Task<IReadOnlySet<Guid>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlySet<Guid>>(unitOrganizationId == Organization && roleIds.Contains(Advisor) ? new HashSet<Guid> { TestEntitlements.View } : new HashSet<Guid>());
@@ -393,15 +392,15 @@ public sealed class DecisionApiTests
             CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<Guid>>([TestEntitlements.View]);
 
         public Task UpsertPolicyAsync(EndpointPolicy policy, CancellationToken cancellationToken) => Task.CompletedTask;
-        public Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId,  string httpMethod, string routeTemplate, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<Guid> entitlementIds, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class FakeEntitlementCatalog : IEntitlementCatalog
     {
-        public Task<EntitlementInfo> CreateAsync(string tenantId, Guid unitOrganizationId, string code,
+        public Task<EntitlementInfo> CreateAsync(string tenantId, Guid unitOrganizationId,
             string displayName, CancellationToken cancellationToken) =>
-            Task.FromResult(new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId, code, displayName, true));
+            Task.FromResult(new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId, displayName, true));
 
         public Task<bool> SetActiveAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
             bool isActive, CancellationToken cancellationToken) => Task.FromResult(true);
@@ -409,21 +408,20 @@ public sealed class DecisionApiTests
         public Task<EntitlementInfo?> UpdateDisplayNameAsync(string tenantId, Guid unitOrganizationId,
             Guid entitlementId, string displayName, CancellationToken cancellationToken) =>
             Task.FromResult<EntitlementInfo?>(unitOrganizationId == Organization
-                ? new EntitlementInfo(entitlementId, tenantId, unitOrganizationId, "customers.export", displayName, true)
+                ? new EntitlementInfo(entitlementId, tenantId, unitOrganizationId, displayName, true)
                 : null);
 
         public Task<EntitlementInfo?> GetAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
             CancellationToken cancellationToken) => Task.FromResult<EntitlementInfo?>(
                 unitOrganizationId == Organization ? new EntitlementInfo(entitlementId, tenantId,
-                    unitOrganizationId, "customers.view", "View customers", true) : null);
+                    unitOrganizationId, "View customers", true) : null);
 
         public Task<EntitlementPageResponse> ListAsync(string tenantId, Guid? unitOrganizationId, int page,
             int pageSize, CancellationToken cancellationToken)
         {
             string[] values = unitOrganizationId.HasValue ? ["customers.view"] : ["customers.view", "orders.view"];
             return Task.FromResult(new EntitlementPageResponse(values.Skip((page - 1) * pageSize).Take(pageSize)
-                .Select(value => new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId ?? Organization,
-                    value, value, true)).ToArray(),
+                .Select(value => new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId ?? Organization, value, true)).ToArray(),
                 page, pageSize, values.Length));
         }
     }
@@ -431,8 +429,8 @@ public sealed class DecisionApiTests
     private sealed class FakePolicyCatalog : IPolicyCatalog
     {
         public Task<PolicyPageResponse> SearchAsync(string tenantId, Guid? unitOrganizationId,
-            string? module, string? httpMethod, int page, int pageSize, CancellationToken cancellationToken) =>
-            Task.FromResult(new PolicyPageResponse([new PolicyRequest(tenantId, "customers", "GET",
+             string? httpMethod, int page, int pageSize, CancellationToken cancellationToken) =>
+            Task.FromResult(new PolicyPageResponse([new PolicyRequest(tenantId, "GET",
                 "/customers/{id}", false, [TestEntitlements.View], Organization)], page, pageSize, 1));
     }
 }

@@ -6,13 +6,13 @@ namespace AccessControl.Application;
 
 public sealed class AuthorizationService(IAuthorizationStore store, ILogger<AuthorizationService> logger)
 {
-    public async Task<PolicyRequest?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
+    public async Task<PolicyRequest?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
     {
-        PolicyKeyRequest key = NormalizeKey(new PolicyKeyRequest(tenantId, module, httpMethod, routeTemplate, unitOrganizationId));
-        EndpointPolicy? policy = await store.GetPolicyAsync(key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate, cancellationToken);
-        logger.LogDebug("Endpoint policy lookup for {TenantId} {UnitOrganizationId} {Module} {HttpMethod} {RouteTemplate}: {Found}",
-            key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate, policy is not null);
-        return policy is null ? null : new PolicyRequest(policy.TenantId, policy.Module, policy.HttpMethod,
+        PolicyKeyRequest key = NormalizeKey(new PolicyKeyRequest(tenantId, httpMethod, routeTemplate, unitOrganizationId));
+        EndpointPolicy? policy = await store.GetPolicyAsync(key.TenantId, key.UnitOrganizationId, key.HttpMethod, key.RouteTemplate, cancellationToken);
+        logger.LogDebug("Endpoint policy lookup for {TenantId} {UnitOrganizationId} {HttpMethod} {RouteTemplate}: {Found}",
+            key.TenantId, key.UnitOrganizationId, key.HttpMethod, key.RouteTemplate, policy is not null);
+        return policy is null ? null : new PolicyRequest(policy.TenantId, policy.HttpMethod,
             policy.RouteTemplate, policy.IsPublic, policy.RequiredEntitlementIds, policy.UnitOrganizationId);
     }
 
@@ -32,7 +32,7 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (string.IsNullOrWhiteSpace(request.TenantId) || string.IsNullOrWhiteSpace(request.Module) ||
+        if (string.IsNullOrWhiteSpace(request.TenantId) ||
             string.IsNullOrWhiteSpace(request.HttpMethod) || string.IsNullOrWhiteSpace(request.RouteTemplate) ||
             (request.SubjectId is not null &&
                 (!Guid.TryParse(request.SubjectId, out Guid parsedSubject) || parsedSubject == Guid.Empty)))
@@ -45,7 +45,7 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
 
         try
         {
-            key = NormalizeKey(new PolicyKeyRequest(request.TenantId, request.Module, request.HttpMethod, request.RouteTemplate, request.UnitOrganizationId));
+            key = NormalizeKey(new PolicyKeyRequest(request.TenantId, request.HttpMethod, request.RouteTemplate, request.UnitOrganizationId));
         }
         catch (ArgumentException)
         {
@@ -53,48 +53,48 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
             return new DecisionResponse(false, "Invalid authorization request");
         }
 
-        logger.LogDebug("Evaluating endpoint {TenantId} {UnitOrganizationId} {Module} {HttpMethod} {RouteTemplate}",
-            key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate);
-        EndpointPolicy? policy = await store.GetPolicyAsync(key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate, cancellationToken);
+        logger.LogDebug("Evaluating endpoint {TenantId} {UnitOrganizationId} {HttpMethod} {RouteTemplate}",
+            key.TenantId, key.UnitOrganizationId, key.HttpMethod, key.RouteTemplate);
+        EndpointPolicy? policy = await store.GetPolicyAsync(key.TenantId, key.UnitOrganizationId, key.HttpMethod, key.RouteTemplate, cancellationToken);
         if (policy is null && key.UnitOrganizationId != Guid.Empty)
         {
-            EndpointPolicy? global = await store.GetPolicyAsync(key.TenantId, Guid.Empty, key.Module, key.HttpMethod,
+            EndpointPolicy? global = await store.GetPolicyAsync(key.TenantId, Guid.Empty, key.HttpMethod,
                 key.RouteTemplate, cancellationToken);
             policy = global?.IsPublic == true ? global : null;
         }
 
         if (policy is null)
         {
-            logger.LogWarning("No policy for endpoint {TenantId} {UnitOrganizationId} {Module} {HttpMethod} {RouteTemplate}",
-                key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate);
+            logger.LogWarning("No policy for endpoint {TenantId} {UnitOrganizationId} {HttpMethod} {RouteTemplate}",
+                key.TenantId, key.UnitOrganizationId, key.HttpMethod, key.RouteTemplate);
             return new DecisionResponse(false, "No endpoint policy", string.IsNullOrWhiteSpace(request.SubjectId));
         }
 
         if (policy.IsPublic)
         {
-            logger.LogInformation("Public endpoint permitted: {TenantId} {Module} {HttpMethod} {RouteTemplate}",
-                key.TenantId, key.Module, key.HttpMethod, key.RouteTemplate);
+            logger.LogInformation("Public endpoint permitted: {TenantId} {HttpMethod} {RouteTemplate}",
+                key.TenantId, key.HttpMethod, key.RouteTemplate);
             return new DecisionResponse(true, "Public endpoint");
         }
 
         if (string.IsNullOrWhiteSpace(request.SubjectId))
         {
-            logger.LogInformation("Endpoint requires authentication: {TenantId} {Module} {HttpMethod} {RouteTemplate}",
-                key.TenantId, key.Module, key.HttpMethod, key.RouteTemplate);
+            logger.LogInformation("Endpoint requires authentication: {TenantId} {HttpMethod} {RouteTemplate}",
+                key.TenantId, key.HttpMethod, key.RouteTemplate);
             return new DecisionResponse(false, "Authentication required", true);
         }
 
         if (request.UnitOrganizationId == Guid.Empty)
         {
-            logger.LogWarning("Protected decision has no unit organization; trace {TenantId} {Module}", key.TenantId, key.Module);
+            logger.LogWarning("Protected decision has no unit organization; tenant {TenantId}", key.TenantId);
             return new DecisionResponse(false, "Unit organization required");
         }
 
         if (request.IsSuperAdmin || request.IsUnitAdmin)
         {
             string duty = request.IsSuperAdmin ? "SuperAdmin" : "Unit Admin";
-            logger.LogInformation("Protected endpoint permitted by {Duty} duty for {TenantId} {UnitOrganizationId} {Module} {HttpMethod} {RouteTemplate}",
-                duty, key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate);
+            logger.LogInformation("Protected endpoint permitted by {Duty} duty for {TenantId} {UnitOrganizationId} {HttpMethod} {RouteTemplate}",
+                duty, key.TenantId, key.UnitOrganizationId, key.HttpMethod, key.RouteTemplate);
             return new DecisionResponse(true, $"{duty} duty");
         }
 
@@ -103,8 +103,8 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
         Guid[] roleIds = request.RoleIds.Distinct().ToArray();
         IReadOnlySet<Guid> entitlements = await store.GetEntitlementsAsync(key.TenantId, key.UnitOrganizationId, roleIds, cancellationToken);
         bool permit = policy.RequiredEntitlementIds.Any(entitlements.Contains);
-        logger.LogInformation("Endpoint decision {Decision} for {TenantId} {UnitOrganizationId} {Module} {HttpMethod} {RouteTemplate}; {RoleCount} roles, {GrantCount} grants",
-            permit ? "Permit" : "Deny", key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate,
+        logger.LogInformation("Endpoint decision {Decision} for {TenantId} {UnitOrganizationId} {HttpMethod} {RouteTemplate}; {RoleCount} roles, {GrantCount} grants",
+            permit ? "Permit" : "Deny", key.TenantId, key.UnitOrganizationId, key.HttpMethod, key.RouteTemplate,
             roleIds.Length, entitlements.Count);
         return new DecisionResponse(permit, permit ? "Permit" : "Required entitlement missing");
     }
@@ -112,7 +112,7 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
     public async Task UpsertPolicyAsync(PolicyRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        PolicyKeyRequest key = NormalizeKey(new PolicyKeyRequest(request.TenantId, request.Module, request.HttpMethod, request.RouteTemplate, request.UnitOrganizationId));
+        PolicyKeyRequest key = NormalizeKey(new PolicyKeyRequest(request.TenantId, request.HttpMethod, request.RouteTemplate, request.UnitOrganizationId));
         if (!request.IsPublic && key.UnitOrganizationId == Guid.Empty)
         {
             throw new ArgumentException("Protected policies require a unit organization ID.", nameof(request));
@@ -127,18 +127,18 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
         }
 
         Guid[] entitlements = request.RequiredEntitlementIds.Distinct().ToArray();
-        await store.UpsertPolicyAsync(new EndpointPolicy(key.TenantId, key.Module, key.HttpMethod,
+        await store.UpsertPolicyAsync(new EndpointPolicy(key.TenantId, key.HttpMethod,
             key.RouteTemplate, request.IsPublic, entitlements, key.UnitOrganizationId), cancellationToken);
-        logger.LogInformation("Saved endpoint policy {TenantId} {Module} {HttpMethod} {RouteTemplate}; public {IsPublic}, entitlements {Count}",
-            key.TenantId, key.Module, key.HttpMethod, key.RouteTemplate, request.IsPublic, entitlements.Length);
+        logger.LogInformation("Saved endpoint policy {TenantId} {HttpMethod} {RouteTemplate}; public {IsPublic}, entitlements {Count}",
+            key.TenantId, key.HttpMethod, key.RouteTemplate, request.IsPublic, entitlements.Length);
     }
 
     public async Task DeletePolicyAsync(PolicyKeyRequest request, CancellationToken cancellationToken)
     {
         PolicyKeyRequest key = NormalizeKey(request);
-        await store.DeletePolicyAsync(key.TenantId, key.UnitOrganizationId, key.Module, key.HttpMethod, key.RouteTemplate, cancellationToken);
-        logger.LogInformation("Deleted endpoint policy {TenantId} {Module} {HttpMethod} {RouteTemplate}",
-            key.TenantId, key.Module, key.HttpMethod, key.RouteTemplate);
+        await store.DeletePolicyAsync(key.TenantId, key.UnitOrganizationId, key.HttpMethod, key.RouteTemplate, cancellationToken);
+        logger.LogInformation("Deleted endpoint policy {TenantId} {HttpMethod} {RouteTemplate}",
+            key.TenantId, key.HttpMethod, key.RouteTemplate);
     }
 
     public async Task ReplaceRoleEntitlementsAsync(RoleEntitlementsRequest request, CancellationToken cancellationToken)
@@ -161,7 +161,6 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
     {
         ArgumentNullException.ThrowIfNull(request);
         string tenantId = NormalizeName(request.TenantId, nameof(request.TenantId));
-        string module = NormalizeName(request.Module, nameof(request.Module));
         string method = EndpointKey.NormalizeMethod(NormalizeName(request.HttpMethod, nameof(request.HttpMethod)));
         if (string.IsNullOrWhiteSpace(request.RouteTemplate))
         {
@@ -174,7 +173,7 @@ public sealed class AuthorizationService(IAuthorizationStore store, ILogger<Auth
             throw new ArgumentException("Endpoint method or route is too long.", nameof(request));
         }
 
-        return new PolicyKeyRequest(tenantId, module, method, route, request.UnitOrganizationId);
+        return new PolicyKeyRequest(tenantId, method, route, request.UnitOrganizationId);
     }
 
     private static string NormalizeName(string value, string field)

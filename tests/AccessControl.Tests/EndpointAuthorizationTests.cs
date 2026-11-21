@@ -25,13 +25,13 @@ public sealed class EndpointAuthorizationTests
     {
         FakeEndpointStore store = new();
         AuthorizationService service = Service(store);
-        PolicyRequest request = new(" TENANT-A ", " Customers ", "get", "/Customers/{ID}/", isPublic,
+        PolicyRequest request = new(" TENANT-A ", "get", "/Customers/{ID}/", isPublic,
             isPublic ? [] : [TestEntitlements.View, TestEntitlements.View], OrganizationA);
 
         await service.UpsertPolicyAsync(request, CancellationToken.None);
-        PolicyRequest? saved = await service.GetPolicyAsync("tenant-a", OrganizationA, "customers", "GET",
+        PolicyRequest? saved = await service.GetPolicyAsync("tenant-a", OrganizationA, "GET",
             "/customers/{id}", CancellationToken.None);
-        await service.DeletePolicyAsync(new PolicyKeyRequest("TENANT-A", "customers", "get", "/customers/{id}", OrganizationA),
+        await service.DeletePolicyAsync(new PolicyKeyRequest("TENANT-A", "get", "/customers/{id}", OrganizationA),
             CancellationToken.None);
 
         Assert.NotNull(saved);
@@ -63,9 +63,9 @@ public sealed class EndpointAuthorizationTests
         AuthorizationService service = Service(store);
 
         await Assert.ThrowsAsync<ArgumentException>(() => service.UpsertPolicyAsync(
-            new PolicyRequest("tenant-a", "customers", "GET", "/status", false, [TestEntitlements.View], Guid.Empty), CancellationToken.None));
+            new PolicyRequest("tenant-a", "GET", "/status", false, [TestEntitlements.View], Guid.Empty), CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() => service.UpsertPolicyAsync(
-            new PolicyRequest("tenant-a", "customers", "GET", "/status", true, [TestEntitlements.View], OrganizationA), CancellationToken.None));
+            new PolicyRequest("tenant-a", "GET", "/status", true, [TestEntitlements.View], OrganizationA), CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() => service.ReplaceRoleEntitlementsAsync(
             new RoleEntitlementsRequest("tenant-a", Advisor, [TestEntitlements.View], Guid.Empty), CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() => service.GetRoleEntitlementsAsync("tenant-a", OrganizationA,
@@ -80,13 +80,13 @@ public sealed class EndpointAuthorizationTests
     {
         FakeEndpointStore store = new();
         AuthorizationService service = Service(store);
-        DecisionRequest invalidRole = new("invalid-oid", "customers", "GET", "/customers/{id}",
+        DecisionRequest invalidRole = new("invalid-oid", "GET", "/customers/{id}",
             "tenant-a", OrganizationA);
-        DecisionRequest tooManyRoles = invalidRole with { Module = " " };
+        DecisionRequest invalidMethod = invalidRole with { HttpMethod = " " };
         DecisionRequest invalidRoute = invalidRole with { SubjectId = Oid, RouteTemplate = " " };
 
         Assert.False((await service.DecideAsync(invalidRole, CancellationToken.None)).Permit);
-        Assert.False((await service.DecideAsync(tooManyRoles, CancellationToken.None)).Permit);
+        Assert.False((await service.DecideAsync(invalidMethod, CancellationToken.None)).Permit);
         Assert.False((await service.DecideAsync(invalidRoute, CancellationToken.None)).Permit);
         Assert.Empty(store.Policies);
     }
@@ -96,7 +96,7 @@ public sealed class EndpointAuthorizationTests
     {
         FakeEndpointStore store = new();
         AuthorizationService service = Service(store);
-        DecisionRequest oversized = new(Oid, new string('m', 129), "GET", "/status",
+        DecisionRequest oversized = new(Oid, new string('m', 129), "/status",
             "tenant-a", OrganizationA);
 
         DecisionResponse result = await service.DecideAsync(oversized, CancellationToken.None);
@@ -126,15 +126,15 @@ public sealed class EndpointAuthorizationTests
         AuthorizationService service = Service(store);
 
         await Assert.ThrowsAsync<ArgumentException>(() => service.UpsertPolicyAsync(
-            new PolicyRequest("tenant-a", "customers", "GET", " ", true, [], Guid.Empty), CancellationToken.None));
+            new PolicyRequest("tenant-a", "GET", " ", true, [], Guid.Empty), CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() => service.UpsertPolicyAsync(
-            new PolicyRequest("tenant-a", "customers", new string('M', 17), "/status", true, [], Guid.Empty),
+            new PolicyRequest("tenant-a", new string('M', 17), "/status", true, [], Guid.Empty),
             CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() => service.UpsertPolicyAsync(
-            new PolicyRequest("tenant-a", "customers", "GET", new string('r', 513), true, [], Guid.Empty),
+            new PolicyRequest("tenant-a", "GET", new string('r', 513), true, [], Guid.Empty),
             CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() => service.UpsertPolicyAsync(
-            new PolicyRequest("tenant-a", "customers", "GET", "/status", false, [Guid.Empty], OrganizationA),
+            new PolicyRequest("tenant-a", "GET", "/status", false, [Guid.Empty], OrganizationA),
             CancellationToken.None));
         Assert.Empty(store.Policies);
     }
@@ -156,10 +156,10 @@ public sealed class EndpointAuthorizationTests
     public async Task GlobalPublicPolicyPermitsAnonymousAndAuthenticatedUsersAsync()
     {
         FakeEndpointStore store = new();
-        store.Policies.Add(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", true, [], Guid.Empty));
+        store.Policies.Add(new EndpointPolicy("tenant-a", "GET", "/customers/{id}", true, [], Guid.Empty));
         AuthorizationService service = Service(store);
 
-        Assert.True((await service.DecideAsync(new DecisionRequest(null, "customers", "GET", "/customers/{id}", "tenant-a", Guid.Empty),
+        Assert.True((await service.DecideAsync(new DecisionRequest(null, "GET", "/customers/{id}", "tenant-a", Guid.Empty),
             CancellationToken.None)).Permit);
         Assert.True((await service.DecideAsync(Decision(OrganizationA), CancellationToken.None)).Permit);
     }
@@ -168,7 +168,7 @@ public sealed class EndpointAuthorizationTests
     public async Task OrganizationProtectedPolicyOverridesGlobalPublicAsync()
     {
         FakeEndpointStore store = new();
-        store.Policies.Add(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", true, [], Guid.Empty));
+        store.Policies.Add(new EndpointPolicy("tenant-a", "GET", "/customers/{id}", true, [], Guid.Empty));
         store.Policies.Add(Protected(OrganizationA));
         AuthorizationService service = Service(store);
 
@@ -180,8 +180,8 @@ public sealed class EndpointAuthorizationTests
     public async Task OrganizationPolicyWithNoEntitlementsTakesPrecedenceOverGlobalPublicAsync()
     {
         FakeEndpointStore store = new();
-        store.Policies.Add(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", true, [], Guid.Empty));
-        store.Policies.Add(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", false, [], OrganizationA));
+        store.Policies.Add(new EndpointPolicy("tenant-a", "GET", "/customers/{id}", true, [], Guid.Empty));
+        store.Policies.Add(new EndpointPolicy("tenant-a", "GET", "/customers/{id}", false, [], OrganizationA));
 
         DecisionResponse result = await Service(store).DecideAsync(Decision(OrganizationA), CancellationToken.None);
 
@@ -197,7 +197,7 @@ public sealed class EndpointAuthorizationTests
 
         DecisionResponse missing = await service.DecideAsync(Decision(OrganizationA), CancellationToken.None);
         DecisionResponse anonymous = await service.DecideAsync(
-            new DecisionRequest(null, "customers", "GET", "/customers/{id}", "tenant-a", Guid.Empty), CancellationToken.None);
+            new DecisionRequest(null, "GET", "/customers/{id}", "tenant-a", Guid.Empty), CancellationToken.None);
 
         Assert.False(missing.Permit);
         Assert.False(missing.AuthenticationRequired);
@@ -211,10 +211,10 @@ public sealed class EndpointAuthorizationTests
         bool isSuperAdmin, bool isUnitAdmin)
     {
         FakeEndpointStore store = new();
-        store.Policies.Add(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}",
+        store.Policies.Add(new EndpointPolicy("tenant-a", "GET", "/customers/{id}",
             false, [], OrganizationA));
         string json = $$"""
-            {"subjectId":"{{Oid}}","module":"customers","httpMethod":"GET",
+            {"subjectId":"{{Oid}}","httpMethod":"GET",
              "routeTemplate":"/customers/{id}","tenantId":"tenant-a",
              "unitOrganizationId":"{{OrganizationA}}","roleIds":[],
              "isSuperAdmin":{{isSuperAdmin.ToString().ToLowerInvariant()}},
@@ -232,7 +232,7 @@ public sealed class EndpointAuthorizationTests
     public async Task SuperAdminFlagDoesNotPermitMissingPolicyAsync()
     {
         DecisionRequest request = System.Text.Json.JsonSerializer.Deserialize<DecisionRequest>(
-            $$"""{"subjectId":"{{Oid}}","module":"customers","httpMethod":"GET","routeTemplate":"/missing","tenantId":"tenant-a","unitOrganizationId":"{{OrganizationA}}","isSuperAdmin":true}""",
+            $$"""{"subjectId":"{{Oid}}","httpMethod":"GET","routeTemplate":"/missing","tenantId":"tenant-a","unitOrganizationId":"{{OrganizationA}}","isSuperAdmin":true}""",
             new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
 
         DecisionResponse result = await Service(new FakeEndpointStore()).DecideAsync(request, CancellationToken.None);
@@ -244,9 +244,9 @@ public sealed class EndpointAuthorizationTests
     public async Task AnonymousRequestCannotUseAdministrativeDutyFlagAsync()
     {
         FakeEndpointStore store = new();
-        store.Policies.Add(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}",
+        store.Policies.Add(new EndpointPolicy("tenant-a", "GET", "/customers/{id}",
             false, [], OrganizationA));
-        DecisionRequest request = new(null, "customers", "GET", "/customers/{id}", "tenant-a",
+        DecisionRequest request = new(null, "GET", "/customers/{id}", "tenant-a",
             OrganizationA, [], IsSuperAdmin: true);
 
         DecisionResponse result = await Service(store).DecideAsync(request, CancellationToken.None);
@@ -261,7 +261,7 @@ public sealed class EndpointAuthorizationTests
         AuthorizationService service = Service(new FakeEndpointStore());
 
         DecisionResponse decision = await service.DecideAsync(
-            new DecisionRequest(null, "customers", "GET", "/customers/{id}", "tenant-a", Guid.Empty),
+            new DecisionRequest(null, "GET", "/customers/{id}", "tenant-a", Guid.Empty),
             CancellationToken.None);
 
         Assert.False(decision.Permit);
@@ -269,10 +269,10 @@ public sealed class EndpointAuthorizationTests
     }
 
     private static EndpointPolicy Protected(Guid organizationId) =>
-        new("tenant-a", "customers", "GET", "/customers/{id}", false, [TestEntitlements.View], organizationId);
+        new("tenant-a", "GET", "/customers/{id}", false, [TestEntitlements.View], organizationId);
 
     private static DecisionRequest Decision(Guid organizationId) =>
-        new(Oid, "customers", "GET", "/customers/{id}", "tenant-a", organizationId, [Advisor]);
+        new(Oid, "GET", "/customers/{id}", "tenant-a", organizationId, [Advisor]);
 
     private static AuthorizationService Service(IAuthorizationStore store) =>
         new(store, NullLogger<AuthorizationService>.Instance);
@@ -282,10 +282,10 @@ public sealed class EndpointAuthorizationTests
         public List<EndpointPolicy> Policies { get; } = [];
         public Dictionary<Guid, IReadOnlySet<Guid>> Grants { get; } = [];
 
-        public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module,
+        public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId,
             string httpMethod, string routeTemplate, CancellationToken cancellationToken) =>
             Task.FromResult(Policies.SingleOrDefault(policy => policy.TenantId == tenantId &&
-                policy.UnitOrganizationId == unitOrganizationId && policy.Module == module &&
+                policy.UnitOrganizationId == unitOrganizationId &&
                 policy.HttpMethod == httpMethod && policy.RouteTemplate == routeTemplate));
 
         public Task<IReadOnlySet<Guid>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId,
@@ -300,16 +300,16 @@ public sealed class EndpointAuthorizationTests
         public Task UpsertPolicyAsync(EndpointPolicy policy, CancellationToken cancellationToken)
         {
             Policies.RemoveAll(existing => existing.TenantId == policy.TenantId &&
-                existing.UnitOrganizationId == policy.UnitOrganizationId && existing.Module == policy.Module &&
+                existing.UnitOrganizationId == policy.UnitOrganizationId &&
                 existing.HttpMethod == policy.HttpMethod && existing.RouteTemplate == policy.RouteTemplate);
             Policies.Add(policy);
             return Task.CompletedTask;
         }
-        public Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod,
+        public Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId,  string httpMethod,
             string routeTemplate, CancellationToken cancellationToken)
         {
             Policies.RemoveAll(policy => policy.TenantId == tenantId && policy.UnitOrganizationId == unitOrganizationId &&
-                policy.Module == module && policy.HttpMethod == httpMethod && policy.RouteTemplate == routeTemplate);
+                policy.HttpMethod == httpMethod && policy.RouteTemplate == routeTemplate);
             return Task.CompletedTask;
         }
         public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId,

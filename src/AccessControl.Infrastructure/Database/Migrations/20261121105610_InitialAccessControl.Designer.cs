@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace AccessControl.Infrastructure.Database.Migrations
 {
     [DbContext(typeof(AccessControlDbContext))]
-    [Migration("20261118125926_InitialAccessControl")]
+    [Migration("20261121105610_InitialAccessControl")]
     partial class InitialAccessControl
     {
         /// <inheritdoc />
@@ -124,11 +124,6 @@ namespace AccessControl.Infrastructure.Database.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
-                    b.Property<string>("Module")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
                     b.Property<string>("RouteTemplate")
                         .IsRequired()
                         .HasMaxLength(512)
@@ -144,7 +139,7 @@ namespace AccessControl.Infrastructure.Database.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId", "UnitOrganizationId", "Module", "HttpMethod", "RouteTemplate")
+                    b.HasIndex("TenantId", "UnitOrganizationId", "HttpMethod", "RouteTemplate")
                         .IsUnique();
 
                     b.ToTable("EndpointPolicies", (string)null);
@@ -156,11 +151,6 @@ namespace AccessControl.Infrastructure.Database.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier")
                         .HasDefaultValueSql("NEWSEQUENTIALID()");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
 
                     b.Property<string>("DisplayName")
                         .IsRequired()
@@ -187,9 +177,6 @@ namespace AccessControl.Infrastructure.Database.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "UnitOrganizationId", "Code")
-                        .IsUnique();
 
                     b.ToTable("Entitlements", (string)null);
                 });

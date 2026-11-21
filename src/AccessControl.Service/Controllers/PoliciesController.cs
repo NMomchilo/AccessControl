@@ -14,23 +14,23 @@ public sealed class PoliciesController(AuthorizationService authorizationService
     [HttpGet("search")]
     [ProducesResponseType(typeof(PolicyPageResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> SearchAsync([FromQuery] string tenantId,
-        [FromQuery] Guid? unitOrganizationId, [FromQuery] string? module, [FromQuery] string? httpMethod,
+        [FromQuery] Guid? unitOrganizationId, [FromQuery] string? httpMethod,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 100,
         CancellationToken cancellationToken = default)
     {
         if (!await CanManageAsync(tenantId, unitOrganizationId, cancellationToken)) return Forbid();
-        return Ok(await policyCatalog.SearchAsync(tenantId, unitOrganizationId, module, httpMethod, page,
+        return Ok(await policyCatalog.SearchAsync(tenantId, unitOrganizationId, httpMethod, page,
             pageSize, cancellationToken));
     }
 
     [HttpGet]
     [ProducesResponseType(typeof(PolicyRequest), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetAsync([FromQuery] string tenantId, [FromQuery, BindRequired] Guid unitOrganizationId, [FromQuery] string module,
+    public async Task<IActionResult> GetAsync([FromQuery] string tenantId, [FromQuery, BindRequired] Guid unitOrganizationId,
         [FromQuery] string httpMethod, [FromQuery] string routeTemplate, CancellationToken cancellationToken)
     {
         if (!await CanManageAsync(tenantId, unitOrganizationId, cancellationToken)) return Forbid();
-        PolicyRequest? policy = await authorizationService.GetPolicyAsync(tenantId, unitOrganizationId, module, httpMethod, routeTemplate, cancellationToken);
+        PolicyRequest? policy = await authorizationService.GetPolicyAsync(tenantId, unitOrganizationId, httpMethod, routeTemplate, cancellationToken);
         logger.LogDebug("Policy API lookup completed; found {Found}, trace {TraceId}", policy is not null, HttpContext.TraceIdentifier);
         return policy is null ? NotFound() : Ok(policy);
     }

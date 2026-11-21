@@ -6,7 +6,6 @@ public sealed class EndpointPolicyEntity : GeneralEntityBase
 {
     public string TenantId { get; set; } = string.Empty;
     public Guid UnitOrganizationId { get; set; }
-    public string Module { get; set; } = string.Empty;
     public string HttpMethod { get; set; } = string.Empty;
     public string RouteTemplate { get; set; } = string.Empty;
     public bool IsPublic { get; set; }

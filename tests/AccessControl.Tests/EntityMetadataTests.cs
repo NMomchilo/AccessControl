@@ -17,7 +17,7 @@ public sealed class EntityMetadataTests
         await db.Database.EnsureCreatedAsync();
         var entitlement = new EntitlementEntity
         {
-            TenantId = "default", UnitOrganizationId = Guid.NewGuid(), Code = "read", DisplayName = "Read"
+            TenantId = "default", UnitOrganizationId = Guid.NewGuid(), DisplayName = "Read"
         };
         db.Entitlements.Add(entitlement);
         await db.SaveChangesAsync();
@@ -43,7 +43,7 @@ public sealed class EntityMetadataTests
         await db.Database.EnsureCreatedAsync();
         db.Entitlements.Add(new EntitlementEntity
         {
-            TenantId = "default", UnitOrganizationId = Guid.NewGuid(), Code = "read", DisplayName = "Read"
+            TenantId = "default", UnitOrganizationId = Guid.NewGuid(), DisplayName = "Read"
         });
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());

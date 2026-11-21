@@ -11,7 +11,7 @@ namespace AccessControl.Tests;
 public sealed class ApiKeyMiddlewareTests
 {
     [Fact]
-    public async Task DecisionClientAcceptsModuleAndTenantProvidedByApiAsync()
+    public async Task DecisionClientAcceptsTenantProvidedByApiAsync()
     {
         bool reached = false;
         ApiKeyMiddleware middleware = new(_ => { reached = true; return Task.CompletedTask; },
@@ -27,7 +27,7 @@ public sealed class ApiKeyMiddlewareTests
         context.Request.Method = "POST";
         context.Request.Headers[ApiKeyMiddleware.HeaderName] = "decision";
         context.Request.Body = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(
-            new DecisionRequest(null, "payments", "GET", "/payments", "another-tenant", Guid.NewGuid())));
+            new DecisionRequest(null, "GET", "/payments", "another-tenant", Guid.NewGuid())));
 
         await middleware.InvokeAsync(context);
 
@@ -75,7 +75,7 @@ public sealed class ApiKeyMiddlewareTests
         context.Request.Headers[ApiKeyMiddleware.HeaderName] = key;
         if (path == "/v1/decisions")
             context.Request.Body = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(
-                new DecisionRequest(null, "customers", "GET", "/customers/{id}", "default", Guid.Empty)));
+                new DecisionRequest(null, "GET", "/customers/{id}", "default", Guid.Empty)));
         if (path == "/v1/policies" && key == "admin")
             context.User = new ClaimsPrincipal(new ClaimsIdentity(
                 [new Claim("oid", Guid.NewGuid().ToString("D"))], "verified-actor"));

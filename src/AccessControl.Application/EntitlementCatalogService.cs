@@ -11,9 +11,8 @@ public sealed class EntitlementCatalogService(IEntitlementCatalog catalog, ILogg
         string tenantId = NormalizeTenant(request.TenantId);
         if (request.UnitOrganizationId == Guid.Empty)
             throw new ArgumentException("Unit organization ID is required.", nameof(request));
-        string code = NormalizeText(request.Code, 128, nameof(request.Code)).ToLowerInvariant();
         string displayName = NormalizeText(request.DisplayName, 200, nameof(request.DisplayName));
-        EntitlementInfo created = await catalog.CreateAsync(tenantId, request.UnitOrganizationId, code,
+        EntitlementInfo created = await catalog.CreateAsync(tenantId, request.UnitOrganizationId,
             displayName, cancellationToken);
         logger.LogInformation("Created entitlement {EntitlementId} in tenant {TenantId}, organization {UnitOrganizationId}",
             created.Id, tenantId, request.UnitOrganizationId);

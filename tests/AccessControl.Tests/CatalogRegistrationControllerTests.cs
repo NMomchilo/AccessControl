@@ -22,12 +22,12 @@ public sealed class CatalogRegistrationControllerTests
         DefaultHttpContext context = new();
         context.Items[nameof(DecisionClientCredential)] = new DecisionClientCredential
         {
-            CanRegisterCatalog = true
+            CanRegisterCatalog = true, ClientId = "customer-api"
         };
         controller.ControllerContext = new ControllerContext { HttpContext = context };
 
         IActionResult result = await controller.RegisterAsync(new CatalogRegistrationRequest(
-            "default", Guid.NewGuid(), "customers", "Customers",
+            "default", Guid.NewGuid(),
             [new CatalogEndpoint("GET", "/customers/{id}")]), default);
 
         Assert.IsType<ConflictResult>(result);
@@ -35,7 +35,7 @@ public sealed class CatalogRegistrationControllerTests
 
     private sealed class ConflictingCatalog : ICatalogRegistrationService
     {
-        public Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request,
+        public Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request, string clientId,
             CancellationToken cancellationToken) => throw new CatalogRegistrationConflictException();
     }
 
@@ -45,13 +45,13 @@ public sealed class CatalogRegistrationControllerTests
         CatalogRegistrationController controller = new(null!);
         DefaultHttpContext context = new();
         controller.ControllerContext = new ControllerContext { HttpContext = context };
-        CatalogRegistrationRequest request = new("default", Guid.NewGuid(), "customers", "Customers",
+        CatalogRegistrationRequest request = new("default", Guid.NewGuid(),
             [new CatalogEndpoint("GET", "/customers/{id}")]);
 
         Assert.IsType<ForbidResult>(await controller.RegisterAsync(request, default));
         context.Items[nameof(DecisionClientCredential)] = new DecisionClientCredential
         {
-            CanRegisterCatalog = true
+            CanRegisterCatalog = true, ClientId = "customer-api"
         };
         Assert.IsType<BadRequestResult>(await controller.RegisterAsync(
             request with { UnitOrganizationId = Guid.Empty }, default));
@@ -73,20 +73,20 @@ public sealed class CatalogRegistrationControllerTests
         DefaultHttpContext context = new();
         context.Items[nameof(DecisionClientCredential)] = new DecisionClientCredential
         {
-            CanRegisterCatalog = true
+            CanRegisterCatalog = true, ClientId = "customer-api"
         };
         controller.ControllerContext = new ControllerContext { HttpContext = context };
-        CatalogRegistrationRequest request = new("another-tenant", organization, "payments", "Payments",
+        CatalogRegistrationRequest request = new("another-tenant", organization,
             [new CatalogEndpoint("GET", "/customers/{id}")]);
 
         IActionResult anotherOrganization = await controller.RegisterAsync(request with
         { UnitOrganizationId = Guid.NewGuid(), TenantId = "another-tenant-2" }, default);
         IActionResult allowed = await controller.RegisterAsync(request, default);
 
-        Assert.Equal(new CatalogRegistrationResult(1, 1),
+        Assert.Equal(new CatalogRegistrationResult( 1),
             Assert.IsType<OkObjectResult>(anotherOrganization).Value);
-        Assert.Equal(new CatalogRegistrationResult(1, 1), Assert.IsType<OkObjectResult>(allowed).Value);
+        Assert.Equal(new CatalogRegistrationResult( 1), Assert.IsType<OkObjectResult>(allowed).Value);
         Assert.Equal(2, await db.EndpointPolicies.CountAsync());
-        Assert.All(await db.Modules.ToListAsync(), module => Assert.Equal("payments", module.Code));
+        Assert.All(await db.EndpointPolicies.ToListAsync(), policy => Assert.False(policy.IsPublic));
     }
 }

@@ -30,24 +30,23 @@ public sealed class SqlAuthorizationStoreTests
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
         EntitlementCatalogService entitlements = new(new SqlEntitlementCatalog(db),
             NullLogger<EntitlementCatalogService>.Instance);
-        EntitlementInfo view = await entitlements.CreateAsync(new("tenant-a", Organization, "customers.view", "View"),
+        EntitlementInfo view = await entitlements.CreateAsync(new("tenant-a", Organization, "View"),
             CancellationToken.None);
-        await service.UpsertPolicyAsync(new("tenant-a", "customers", "GET", "/customers/{id}", false,
+        await service.UpsertPolicyAsync(new("tenant-a", "GET", "/customers/{id}", false,
             [view.Id], Organization), CancellationToken.None);
-        await service.UpsertPolicyAsync(new("tenant-a", "customers", "GET", "/status", true,
+        await service.UpsertPolicyAsync(new("tenant-a", "GET", "/status", true,
             [], Guid.Empty), CancellationToken.None);
         PolicyCatalogService catalog = new(new SqlPolicyCatalog(db), NullLogger<PolicyCatalogService>.Instance);
 
-        PolicyPageResponse all = await catalog.SearchAsync("tenant-a", null, null, null, 1, 10,
+        PolicyPageResponse all = await catalog.SearchAsync("tenant-a", null, null, 1, 10,
             CancellationToken.None);
         Assert.Equal(2, all.TotalCount);
-        PolicyPageResponse scoped = await catalog.SearchAsync("tenant-a", Organization, "customers", "get",
-            1, 10, CancellationToken.None);
+        PolicyPageResponse scoped = await catalog.SearchAsync("tenant-a", Organization, "get", 1, 10, CancellationToken.None);
         Assert.Single(scoped.Items);
         Assert.Equal([view.Id], scoped.Items.Single().RequiredEntitlementIds);
-        Assert.Empty((await catalog.SearchAsync("tenant-b", null, null, null, 1, 10,
+        Assert.Empty((await catalog.SearchAsync("tenant-b", null, null, 1, 10,
             CancellationToken.None)).Items);
-        Assert.Single((await catalog.SearchAsync("tenant-a", null, null, null, 2, 1,
+        Assert.Single((await catalog.SearchAsync("tenant-a", null, null, 2, 1,
             CancellationToken.None)).Items);
     }
 
@@ -71,10 +70,10 @@ public sealed class SqlAuthorizationStoreTests
             loads++;
             return Task.FromResult<EndpointPolicy?>(null);
         }
-        await cache.GetPolicyAsync("tenant", Organization, "customers", "GET", "/status", Load, CancellationToken.None);
+        await cache.GetPolicyAsync("tenant", Organization, "GET", "/status", Load, CancellationToken.None);
 
         await poller.CheckOnceAsync(CancellationToken.None); // revision table does not exist yet
-        await cache.GetPolicyAsync("tenant", Organization, "customers", "GET", "/status", Load, CancellationToken.None);
+        await cache.GetPolicyAsync("tenant", Organization, "GET", "/status", Load, CancellationToken.None);
         Assert.Equal(1, loads);
 
         using (IServiceScope scope = provider.CreateScope())
@@ -82,7 +81,7 @@ public sealed class SqlAuthorizationStoreTests
             await scope.ServiceProvider.GetRequiredService<AccessControlDbContext>().Database.EnsureCreatedAsync();
         }
         await poller.CheckOnceAsync(CancellationToken.None);
-        await cache.GetPolicyAsync("tenant", Organization, "customers", "GET", "/status", Load, CancellationToken.None);
+        await cache.GetPolicyAsync("tenant", Organization, "GET", "/status", Load, CancellationToken.None);
         Assert.Equal(2, loads);
     }
 
@@ -149,7 +148,7 @@ public sealed class SqlAuthorizationStoreTests
             Interlocked.Increment(ref loads);
             return Task.FromResult<EndpointPolicy?>(null);
         }
-        await cache.GetPolicyAsync("tenant", Organization, "customers", "GET", "/status", Load, CancellationToken.None);
+        await cache.GetPolicyAsync("tenant", Organization, "GET", "/status", Load, CancellationToken.None);
 
         await poller.StartAsync(CancellationToken.None);
         try
@@ -158,7 +157,7 @@ public sealed class SqlAuthorizationStoreTests
             while (Volatile.Read(ref loads) == 1)
             {
                 await Task.Delay(20, timeout.Token);
-                await cache.GetPolicyAsync("tenant", Organization, "customers", "GET", "/status", Load, timeout.Token);
+                await cache.GetPolicyAsync("tenant", Organization, "GET", "/status", Load, timeout.Token);
             }
             Assert.Equal(2, loads);
         }
@@ -196,12 +195,12 @@ public sealed class SqlAuthorizationStoreTests
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
         Assert.Equal(0, await store.GetRevisionAsync(CancellationToken.None));
 
-        await store.UpsertPolicyAsync(new EndpointPolicy("tenant", "customers", "GET", "/customers/{id}",
+        await store.UpsertPolicyAsync(new EndpointPolicy("tenant", "GET", "/customers/{id}",
             false, [TestEntitlements.View], Organization), CancellationToken.None);
         Assert.Equal(1, await store.GetRevisionAsync(CancellationToken.None));
         await store.ReplaceRoleEntitlementsAsync("tenant", Organization, Advisor, [TestEntitlements.View], CancellationToken.None);
         Assert.Equal(2, await store.GetRevisionAsync(CancellationToken.None));
-        await store.DeletePolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
+        await store.DeletePolicyAsync("tenant", Organization, "GET", "/customers/{id}", CancellationToken.None);
         Assert.Equal(3, await store.GetRevisionAsync(CancellationToken.None));
     }
 
@@ -216,7 +215,7 @@ public sealed class SqlAuthorizationStoreTests
         await writerContext.Database.EnsureCreatedAsync();
         await SeedAsync(writerContext, "tenant");
         SqlAuthorizationStore writer = new(writerContext, NullLogger<SqlAuthorizationStore>.Instance);
-        EndpointPolicy policy = new("tenant", "customers", "GET", "/customers/{id}", false, [TestEntitlements.View], Organization);
+        EndpointPolicy policy = new("tenant", "GET", "/customers/{id}", false, [TestEntitlements.View], Organization);
         await writer.UpsertPolicyAsync(policy, CancellationToken.None);
 
         ServiceCollection services = new();
@@ -232,13 +231,13 @@ public sealed class SqlAuthorizationStoreTests
             Options.Create(new AccessControlCacheOptions()), NullLogger<AuthorizationCacheInvalidationService>.Instance);
         CachingAuthorizationStore reader = new(readerStore, cache, NullLogger<CachingAuthorizationStore>.Instance);
         await poller.CheckOnceAsync(CancellationToken.None);
-        Assert.False((await reader.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None))?.IsPublic);
+        Assert.False((await reader.GetPolicyAsync("tenant", Organization, "GET", "/customers/{id}", CancellationToken.None))?.IsPublic);
 
         await writer.UpsertPolicyAsync(policy with { IsPublic = true, RequiredEntitlementIds = [] }, CancellationToken.None);
-        Assert.False((await reader.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None))?.IsPublic);
+        Assert.False((await reader.GetPolicyAsync("tenant", Organization, "GET", "/customers/{id}", CancellationToken.None))?.IsPublic);
         await poller.CheckOnceAsync(CancellationToken.None);
 
-        Assert.True((await reader.GetPolicyAsync("tenant", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None))?.IsPublic);
+        Assert.True((await reader.GetPolicyAsync("tenant", Organization, "GET", "/customers/{id}", CancellationToken.None))?.IsPublic);
     }
 
     [Fact]
@@ -252,17 +251,17 @@ public sealed class SqlAuthorizationStoreTests
         await context.Database.EnsureCreatedAsync();
         await SeedAsync(context, "tenant-a");
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
-        EndpointPolicy protectedPolicy = new("tenant-a", "customers", "GET", "/customers/{id}", false, [TestEntitlements.View], Organization);
+        EndpointPolicy protectedPolicy = new("tenant-a", "GET", "/customers/{id}", false, [TestEntitlements.View], Organization);
         await store.UpsertPolicyAsync(protectedPolicy, CancellationToken.None);
 
         await store.UpsertPolicyAsync(protectedPolicy with { IsPublic = true, RequiredEntitlementIds = [] }, CancellationToken.None);
-        EndpointPolicy? result = await store.GetPolicyAsync("tenant-a", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
+        EndpointPolicy? result = await store.GetPolicyAsync("tenant-a", Organization, "GET", "/customers/{id}", CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.True(result.IsPublic);
         Assert.Empty(result.RequiredEntitlementIds);
-        await store.DeletePolicyAsync("tenant-a", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None);
-        Assert.Null(await store.GetPolicyAsync("tenant-a", Organization, "customers", "GET", "/customers/{id}", CancellationToken.None));
+        await store.DeletePolicyAsync("tenant-a", Organization, "GET", "/customers/{id}", CancellationToken.None);
+        Assert.Null(await store.GetPolicyAsync("tenant-a", Organization, "GET", "/customers/{id}", CancellationToken.None));
     }
 
     [Fact]
@@ -276,16 +275,16 @@ public sealed class SqlAuthorizationStoreTests
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
         PolicyCatalogService catalog = new(new SqlPolicyCatalog(context), NullLogger<PolicyCatalogService>.Instance);
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
-        EndpointPolicy policy = new("tenant-a", "customers", "GET", "/status", true, [], Guid.Empty);
+        EndpointPolicy policy = new("tenant-a", "GET", "/status", true, [], Guid.Empty);
         await store.UpsertPolicyAsync(policy, CancellationToken.None);
 
-        await store.DeletePolicyAsync("tenant-a", Guid.Empty, "customers", "GET", "/status", CancellationToken.None);
+        await store.DeletePolicyAsync("tenant-a", Guid.Empty, "GET", "/status", CancellationToken.None);
 
         EndpointPolicyEntity saved = await context.EndpointPolicies.AsNoTracking().SingleAsync();
         Assert.False(saved.IsActive);
-        Assert.Null(await store.GetPolicyAsync("tenant-a", Guid.Empty, "customers", "GET", "/status", CancellationToken.None));
-        Assert.Empty((await catalog.SearchAsync("tenant-a", null, null, null, 1, 10, CancellationToken.None)).Items);
-        Assert.False((await service.DecideAsync(new DecisionRequest(null, "customers", "GET", "/status", "tenant-a", Guid.Empty),
+        Assert.Null(await store.GetPolicyAsync("tenant-a", Guid.Empty, "GET", "/status", CancellationToken.None));
+        Assert.Empty((await catalog.SearchAsync("tenant-a", null, null, 1, 10, CancellationToken.None)).Items);
+        Assert.False((await service.DecideAsync(new DecisionRequest(null, "GET", "/status", "tenant-a", Guid.Empty),
             CancellationToken.None)).Permit);
         Assert.Equal(2, await store.GetRevisionAsync(CancellationToken.None));
 
@@ -293,7 +292,7 @@ public sealed class SqlAuthorizationStoreTests
 
         Assert.Single(await context.EndpointPolicies.ToArrayAsync());
         Assert.True((await context.EndpointPolicies.AsNoTracking().SingleAsync()).IsActive);
-        Assert.True((await service.DecideAsync(new DecisionRequest(null, "customers", "GET", "/status", "tenant-a", Guid.Empty),
+        Assert.True((await service.DecideAsync(new DecisionRequest(null, "GET", "/status", "tenant-a", Guid.Empty),
             CancellationToken.None)).Permit);
     }
 
@@ -309,8 +308,8 @@ public sealed class SqlAuthorizationStoreTests
         await SeedAsync(context, "tenant-a");
         SqlAuthorizationStore store = new(context, NullLogger<SqlAuthorizationStore>.Instance);
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
-        DecisionRequest request = new("aaaaaaaa-1111-1111-1111-111111111111", "customers", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]);
-        await store.UpsertPolicyAsync(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}", false, [TestEntitlements.View], Organization), CancellationToken.None);
+        DecisionRequest request = new("aaaaaaaa-1111-1111-1111-111111111111", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]);
+        await store.UpsertPolicyAsync(new EndpointPolicy("tenant-a", "GET", "/customers/{id}", false, [TestEntitlements.View], Organization), CancellationToken.None);
         await store.ReplaceRoleEntitlementsAsync("tenant-a", Organization, Advisor, [TestEntitlements.View], CancellationToken.None);
 
         Assert.True((await service.DecideAsync(request, CancellationToken.None)).Permit);
@@ -325,7 +324,7 @@ public sealed class SqlAuthorizationStoreTests
         context.Entitlements.Add(new EntitlementEntity
         {
             Id = TestEntitlements.View, TenantId = tenantId, UnitOrganizationId = Organization,
-            Code = "customers.view", DisplayName = "View customers", IsActive = true
+ DisplayName = "View customers", IsActive = true
         });
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();

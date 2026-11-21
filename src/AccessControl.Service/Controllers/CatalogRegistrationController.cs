@@ -18,19 +18,16 @@ public sealed class CatalogRegistrationController(ICatalogRegistrationService st
             !client.CanRegisterCatalog)
             return Forbid();
         if (request is null || string.IsNullOrWhiteSpace(request.TenantId) || request.TenantId.Length > 128 ||
-            request.UnitOrganizationId == Guid.Empty || string.IsNullOrWhiteSpace(request.Module) ||
-            request.Module.Length > 128 || string.IsNullOrWhiteSpace(request.ModuleName) ||
-            request.ModuleName.Length > 200 || request.Endpoints is null || request.Endpoints.Count > 1000 ||
+            request.UnitOrganizationId == Guid.Empty || request.Endpoints is null || request.Endpoints.Count > 1000 ||
             request.Endpoints.Any(endpoint => endpoint is null ||
                 string.IsNullOrWhiteSpace(endpoint.HttpMethod) || endpoint.HttpMethod.Length > 16 ||
                 string.IsNullOrWhiteSpace(endpoint.RouteTemplate) || endpoint.RouteTemplate.Length > 512))
             return BadRequest();
 
         string tenant = request.TenantId.Trim();
-        string module = request.Module.Trim().ToLowerInvariant();
         CatalogRegistrationRequest normalized = request with
         {
-            TenantId = tenant, Module = module, ModuleName = request.ModuleName.Trim(),
+            TenantId = tenant,
             Endpoints = request.Endpoints.Select(endpoint => new CatalogEndpoint(
                 EndpointKey.NormalizeMethod(endpoint.HttpMethod),
                 EndpointKey.NormalizeRoute(endpoint.RouteTemplate))).Distinct().ToArray()
@@ -39,7 +36,7 @@ public sealed class CatalogRegistrationController(ICatalogRegistrationService st
                 endpoint.RouteTemplate.Length > 512)) return BadRequest();
         try
         {
-            return Ok(await store.RegisterAsync(normalized, cancellationToken));
+            return Ok(await store.RegisterAsync(normalized, client.ClientId, cancellationToken));
         }
         catch (CatalogRegistrationConflictException)
         {

@@ -5,7 +5,6 @@
     "expectedPermit": true,
     "request": {
       "subjectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
-      "module": "customers",
       "httpMethod": "GET",
       "routeTemplate": "/customers/{id}",
       "tenantId": "default",

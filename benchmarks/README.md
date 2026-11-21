@@ -30,7 +30,7 @@ The weights are illustrative, not observed traffic. The direct decision benchmar
 
 ## Benchmark a staging deployment
 
-Apply the EF migrations to a dedicated Access Control staging database. Create an active `benchmark.read` entitlement for tenant `benchmark-tenant` and UO ID `33333333-3333-3333-3333-333333333333`, and use its returned ID in a protected policy for module `benchmark`, method `GET`, route `/benchmark/{id}`. Grant the entitlement to the role ID supplied by the benchmark request in Access Control. Use an Entra access token for the request oid with the audience configured in `DecisionEntra`, and a valid decision client key. Then run:
+Apply the EF migrations to a dedicated Access Control staging database. Create an active `benchmark.read` entitlement for tenant `benchmark-tenant` and UO ID `33333333-3333-3333-3333-333333333333`, and use its returned ID in a protected policy for method `GET`, route `/benchmark/{id}`. Grant the entitlement to the role ID supplied by the benchmark request in Access Control. Use an Entra access token for the request oid with the audience configured in `DecisionEntra`, and a valid decision client key. Then run:
 
 ```powershell
 $env:AccessControlBenchmark__DecisionKey = '<staging decision key>'
@@ -71,4 +71,4 @@ The [UO benchmark report](../docs/unit-organization-benchmark-2026-11-10.md) con
 
 ## User Management benchmark
 
-The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses the `0.12.0` client NuGets from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.
+The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses the `0.13.0` client NuGets from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.

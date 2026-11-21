@@ -29,7 +29,6 @@ public sealed class UserManagementAccessFlowTests
             return Task.CompletedTask;
         }, decisionClient, Options.Create(new AccessControlClientOptions
         {
-            Module = "customers",
             RoleIdClaimType = UserManagementClaims.RoleId,
             RoleIdentityAuthenticationType = UserManagementClaims.IdentityAuthenticationType
         }), NullLogger<AccessControlMiddleware>.Instance);
@@ -63,7 +62,7 @@ public sealed class UserManagementAccessFlowTests
         public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), request.TenantId,
                 request.UnitOrganizationId, "Alpha", true,
-                [new UserRoleInfo(Reader, "reader", "Reader")], isSuperAdmin, isUnitAdmin));
+                [new UserRoleInfo(Reader, "Reader")], isSuperAdmin, isUnitAdmin));
     }
 
     private sealed class CapturingDecisionClient : IAccessControlDecisionClient

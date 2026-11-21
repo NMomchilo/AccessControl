@@ -33,7 +33,7 @@ internal static class Program
     private static readonly Guid Reader = Guid.Parse("10954aa4-7532-80de-a80e-a7be3ad4c991");
     private static readonly Guid Organization = Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly Guid BenchmarkRead = Guid.Parse("99999999-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-    private static readonly DecisionRequest Request = new(BenchmarkOid, "benchmark",
+    private static readonly DecisionRequest Request = new(BenchmarkOid,
         "GET", "/benchmark/{id}", "benchmark-tenant", Organization, [Reader]);
 
     public static async Task<int> Main(string[] args)
@@ -103,7 +103,7 @@ internal static class Program
         BenchmarkCase[] cases = JsonSerializer.Deserialize<BenchmarkCase[]>(File.ReadAllText(path),
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
         if (cases.Length == 0 || cases.Any(item => string.IsNullOrWhiteSpace(item.Name) || item.Weight < 1 ||
-            item.Request is null || string.IsNullOrWhiteSpace(item.Request.Module) ||
+            item.Request is null ||
             string.IsNullOrWhiteSpace(item.Request.HttpMethod) ||
             string.IsNullOrWhiteSpace(item.Request.RouteTemplate) ||
             string.IsNullOrWhiteSpace(item.Request.TenantId) ||
@@ -126,11 +126,11 @@ internal static class Program
         db.Entitlements.Add(new EntitlementEntity
         {
             Id = BenchmarkRead, TenantId = "benchmark-tenant", UnitOrganizationId = Organization,
-            Code = "benchmark.read", DisplayName = "Read benchmark", IsActive = true
+            DisplayName = "Read benchmark", IsActive = true
         });
         await db.SaveChangesAsync();
         IAuthorizationStore store = scope.ServiceProvider.GetRequiredService<IAuthorizationStore>();
-        await store.UpsertPolicyAsync(new EndpointPolicy("benchmark-tenant", "benchmark", "GET",
+        await store.UpsertPolicyAsync(new EndpointPolicy("benchmark-tenant", "GET",
             "/benchmark/{id}", false, [BenchmarkRead], Organization), CancellationToken.None);
         await store.ReplaceRoleEntitlementsAsync("benchmark-tenant", Organization, Reader, [BenchmarkRead], CancellationToken.None);
     }
@@ -263,7 +263,6 @@ internal static class Program
             builder.UseSetting("ConnectionStrings:AccessControl", "Server=localhost;Database=unused;Trusted_Connection=True");
             builder.UseSetting("ApiKeys:DecisionClients:0:ClientId", "benchmark-local");
             builder.UseSetting("ApiKeys:DecisionClients:0:Key", DecisionKey);
-            builder.UseSetting("ApiKeys:DecisionClients:0:Modules:0", "benchmark");
             builder.UseSetting("ApiKeys:DecisionClients:0:Tenants:0", "benchmark-tenant");
             builder.UseSetting("ApiKeys:DecisionClients:0:AllowAnyUnitOrganization", "true");
             builder.UseSetting("ApiKeys:AdminKey", "local-benchmark-admin-key-0123456789");
@@ -304,13 +303,13 @@ internal static class Program
 
     private sealed class FakeAuthorizationStore : IAuthorizationStore
     {
-        private static readonly EndpointPolicy Policy = new("benchmark-tenant", "benchmark", "GET",
+        private static readonly EndpointPolicy Policy = new("benchmark-tenant", "GET",
             "/benchmark/{id}", false, [BenchmarkRead], Organization);
         private static readonly IReadOnlySet<Guid> Grants = new HashSet<Guid> { BenchmarkRead };
 
-        public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod,
+        public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId,  string httpMethod,
             string routeTemplate, CancellationToken cancellationToken) => Task.FromResult<EndpointPolicy?>(
-                tenantId == Policy.TenantId && unitOrganizationId == Policy.UnitOrganizationId && module == Policy.Module && httpMethod == Policy.HttpMethod &&
+                tenantId == Policy.TenantId && unitOrganizationId == Policy.UnitOrganizationId && httpMethod == Policy.HttpMethod &&
                 routeTemplate == Policy.RouteTemplate ? Policy : null);
 
         public Task<IReadOnlySet<Guid>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds,
@@ -322,7 +321,7 @@ internal static class Program
             Guid roleId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<Guid>>([BenchmarkRead]);
 
         public Task UpsertPolicyAsync(EndpointPolicy policy, CancellationToken cancellationToken) => throw new NotSupportedException();
-        public Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate,
+        public Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId,  string httpMethod, string routeTemplate,
             CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<Guid> entitlementIds,
             CancellationToken cancellationToken) => throw new NotSupportedException();

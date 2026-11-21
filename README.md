@@ -6,7 +6,7 @@ This .NET 10 repository contains the Access Control API. The `AccessControl.Clie
 
 1. The consuming API authenticates the Entra JWT and a trusted gateway assertion identifying the UO. Route matching supplies the HTTP method and **route template**, such as `/customers/{id}`.
 2. `UserManagement.Client` calls `POST /v1/users/resolve` for an authenticated `oid`, tenant, and UO, or reads its bounded cache. It adds the returned role IDs and SuperAdmin/current-UO Admin duties to a dedicated identity in `HttpContext.User`. It does not change the JWT.
-3. `AccessControl.Client` sends the route, module, tenant, UO, subject `oid`, role IDs, and duty flags to `POST /v1/decisions`. It forwards the original bearer token as well as its decision client key.
+3. `AccessControl.Client` sends the route, tenant, UO, subject `oid`, role IDs, and duty flags to `POST /v1/decisions`. It forwards the original bearer token as well as its decision client key.
 4. Access Control checks the client key and requires the bearer `oid` to match a non-null `subjectId`. It finds the endpoint policy. A public policy permits. A protected policy permits an authenticated caller with an asserted SuperAdmin or current-UO Admin duty; otherwise a forwarded role ID must have a required, active entitlement. A missing policy denies. Only Permit reaches the business controller.
 
 Ordinary decisions do not call User Management directly. For Access Control **administrator API** requests, the service calls User Management's `GET /v1/admin/access` with a separate lookup key and the administrator's Entra bearer token to check current management scope. That lookup is distinct from the business decision override.
@@ -17,7 +17,7 @@ An active SuperAdmin can resolve any active UO in their application tenant witho
 
 ## Policies, entitlements, and administration
 
-The policy key is `(tenantId, unitOrganizationId, module, httpMethod, routeTemplate)`. An administrator creates an entitlement with `POST /v1/entitlements`, grants its ID to a User Management role ID with `PUT /v1/roles/entitlements`, and sets a protected route's required entitlement IDs with `PUT /v1/policies`. Required IDs use **OR** semantics. `GET /v1/policies` reads one exact key; `GET /v1/policies/search` lists active policies. `isPublic: true` requires an empty entitlement list. A global public policy uses the all-zero UO ID and applies only when no UO-specific policy takes precedence. Deleting a policy makes it inactive; upserting the same key reactivates it. Disabling an entitlement removes its effect after cache invalidation or expiry.
+The policy key is `(tenantId, unitOrganizationId, httpMethod, routeTemplate)`. An administrator creates an entitlement with `POST /v1/entitlements`, grants its ID to a User Management role ID with `PUT /v1/roles/entitlements`, and sets a protected route's required entitlement IDs with `PUT /v1/policies`. Required IDs use **OR** semantics. `GET /v1/policies` reads one exact key; `GET /v1/policies/search` lists active policies. `isPublic: true` requires an empty entitlement list. A global public policy uses the all-zero UO ID and applies only when no UO-specific policy takes precedence. Deleting a policy makes it inactive; upserting the same key reactivates it. Disabling an entitlement removes its effect after cache invalidation or expiry.
 
 Administrator endpoints require the Access Control administrator key, a validated Entra administrator bearer token, and the relevant SuperAdmin or UO Admin duty from User Management. See the [API guide](docs/api-contract.md) and [OpenAPI 3 specification](src/AccessControl.Service/wwwroot/openapi/access-control.v1.json) for request bodies and all endpoints.
 
@@ -26,7 +26,7 @@ Administrator endpoints require the Access Control administrator key, a validate
 Install the .NET 10 SDK and Docker. From this repository root, start the SQL Server defined in [docker-compose.yml](docker-compose.yml) and then the service:
 
 ```powershell
-# The six Shared 0.12.0 NuGet files are included in .packages.
+# The six Shared 0.13.0 NuGet files are included in .packages.
 docker compose up -d sqlserver
 dotnet run --project src/AccessControl.Service --launch-profile https
 ```
@@ -41,7 +41,7 @@ The local Access Control decision key matches the [CustomerApi settings](samples
 
 ## NuGet packages and consuming APIs
 
-The service, tests, benchmarks, and CustomerApi sample use versioned `0.12.0` NuGet packages from Shared. This repository includes the six package files in `.packages`: `AccessControl.Client`, `AccessControl.Contracts`, `UserManagement.Client`, `UserManagement.Contracts`, `Common.Persistence`, and `AdminManagement.Security`. Their versions must match the project references. When Shared releases a new version, pack it, update the project references, and replace these package files. For example, after packing Shared in any location:
+The service, tests, benchmarks, and CustomerApi sample use versioned `0.13.0` NuGet packages from Shared. This repository includes the six package files in `.packages`: `AccessControl.Client`, `AccessControl.Contracts`, `UserManagement.Client`, `UserManagement.Contracts`, `Common.Persistence`, and `AdminManagement.Security`. Their versions must match the project references. When Shared releases a new version, pack it, update the project references, and replace these package files. For example, after packing Shared in any location:
 
 ```powershell
 Copy-Item 'C:\path\to\Shared\packages\*.nupkg' .packages\
@@ -50,7 +50,7 @@ dotnet restore AccessControl.sln
 
 `NuGet.config` maps these package IDs to `.packages`; no sibling checkout or package download is needed after cloning this repository with the package files committed. Once a private feed is chosen, replace that local source with the feed URL and supply its credentials through CI secrets; do not commit credentials.
 
-Install matching `AccessControl.Client` and `AccessControl.Contracts` versions (currently 0.12.0). A consuming API using the full flow also installs matching `UserManagement.Client` and `UserManagement.Contracts` packages. The host registers both clients and configures JWT authentication. The relevant ordering is:
+Install matching `AccessControl.Client` and `AccessControl.Contracts` versions (currently 0.13.0). A consuming API using the full flow also installs matching `UserManagement.Client` and `UserManagement.Contracts` packages. The host registers both clients and configures JWT authentication. The relevant ordering is:
 
 ```csharp
 builder.Services.AddUserManagement(builder.Configuration);
@@ -74,7 +74,7 @@ app.Run();
 
 The comment represents host-specific gateway authentication code; the NuGets do not create or validate that assertion. A `Gateway` identity must carry `unit_organization_id` and `unit_organization_name`. Do not create it from untrusted request headers. The [CustomerApi sample](samples/CustomerApi/Program.cs) currently validates the JWT but does **not** add the `Gateway` identity, so authenticated requests through its User Management middleware receive `403` until the host implements that step. Its `/health` route is locally excluded from Access Control; `ExcludedPaths` matches a route for every HTTP method, so reserve it for infrastructure routes.
 
-Set `AccessControl:Registration` to the consuming project's tenant ID, UO ID/name, and module name. `RegisterAccessControlCatalogAsync` first asks User Management to create or confirm the UO, then asks Access Control to create or confirm the module and insert missing policies for discovered method/route pairs. It reuses the configured User Management and Access Control service URLs and API keys; no separate registration client is needed. Enable `CanRegisterUnitOrganizations` and `CanRegisterCatalog` on those existing client credentials. A registration-enabled key can register any tenant, UO, and module, and each service records its configured client ID as the write actor. Registration fails startup if either service refuses it or a route lacks HTTP-method metadata. Existing policy settings are preserved; new routes start protected with no entitlements and deny until an administrator configures them. No JSON endpoint catalog is written.
+Set `AccessControl:Registration` to the consuming project's tenant ID and UO ID/name. `RegisterAccessControlCatalogAsync` first asks User Management to create or confirm the UO, then asks Access Control to insert missing policies for discovered method/route pairs. It reuses the configured User Management and Access Control service URLs and API keys; no separate registration client is needed. Enable `CanRegisterUnitOrganizations` and `CanRegisterCatalog` on those existing client credentials. A registration-enabled key can register any tenant and UO, and each service uses its configured client ID as the write actor. Registration fails startup if either service refuses it or a route lacks HTTP-method metadata. Policies are identified by tenant, UO, method, and route; multiple registered clients can report the same endpoint. Existing policy settings are preserved; new routes start protected with no entitlements and deny until an administrator configures them. No JSON endpoint catalog is written.
 
 ## Build, tests, and benchmarks
 

@@ -24,9 +24,9 @@ public sealed class AuthorizationCache : IDisposable
             options.Value.MaximumEntries, _entryLifetime);
     }
 
-    public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate,
+    public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string httpMethod, string routeTemplate,
         Func<CancellationToken, Task<EndpointPolicy?>> load, CancellationToken cancellationToken) =>
-        GetAsync(new PolicyKey(tenantId, unitOrganizationId, module, httpMethod, routeTemplate), load, cancellationToken);
+        GetAsync(new PolicyKey(tenantId, unitOrganizationId, httpMethod, routeTemplate), load, cancellationToken);
 
     public Task<IReadOnlySet<Guid>> GetGrantsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds,
         Func<CancellationToken, Task<IReadOnlySet<Guid>>> load, CancellationToken cancellationToken)
@@ -114,6 +114,6 @@ public sealed class AuthorizationCache : IDisposable
     }
 
     private sealed record CacheEntry<T>(T Value, long Generation);
-    private sealed record PolicyKey(string TenantId, Guid UnitOrganizationId, string Module, string HttpMethod, string RouteTemplate);
+    private sealed record PolicyKey(string TenantId, Guid UnitOrganizationId, string HttpMethod, string RouteTemplate);
     private sealed record GrantsKey(string TenantId, Guid UnitOrganizationId, string Roles);
 }

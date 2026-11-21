@@ -33,8 +33,6 @@ public sealed class AccessControlApiExceptionHandlerTests
     }
 
     [Theory]
-    [InlineData(typeof(AccessControl.Application.EntitlementConflictException),
-        HttpStatusCode.Conflict, "Entitlement conflict")]
     [InlineData(typeof(AccessControl.Service.Security.AdminLookupUnavailableException),
         HttpStatusCode.ServiceUnavailable, "Administrator lookup unavailable")]
     public async Task TryHandleAsync_MapsKnownFailuresWithoutLeakingDetailsAsync(Type exceptionType,

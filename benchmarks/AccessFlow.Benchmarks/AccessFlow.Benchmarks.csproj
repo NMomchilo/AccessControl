@@ -7,7 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
-    <PackageReference Include="AccessControl.Client" Version="0.12.0" />
-    <PackageReference Include="UserManagement.Client" Version="0.12.0" />
+    <PackageReference Include="AccessControl.Client" Version="0.13.0" />
+    <PackageReference Include="UserManagement.Client" Version="0.13.0" />
   </ItemGroup>
 </Project>

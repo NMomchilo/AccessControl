@@ -2,11 +2,11 @@
 
 User resolution, UO-scoped role IDs, and administrative duty flags are documented in the separate User Management repository's `docs/user-management-api.md`. The consuming service validates its Entra JWT and trusted gateway UO assertion before Access Control. User Management middleware adds role IDs and duties to `HttpContext.User`; Access Control middleware forwards them for protected decisions.
 
-Use HTTPS. Every request except `GET /health` and `GET /ready` requires `X-Access-Control-Key`. A configured per-client decision key calls `POST /v1/decisions`; the consuming API supplies the tenant, module, and unit organization. The same key may call `POST /v1/registrations/catalog` when `CanRegisterCatalog` is enabled. The configured `ClientId` identifies the registration actor for database writes. A registration-enabled client may register any tenant, unit organization, and module. Non-anonymous decisions also require an Entra bearer token whose validated `oid` matches `subjectId`. Administrator operations require the separate admin key and a validated Entra bearer token. Access Control asks User Management to verify the actor's current administrative duties for each request; the key and token alone do not grant a tenant or UO scope. A missing or invalid key or actor token returns `401`, an actor without the required administrative scope returns `403`, and an unavailable User Management scope lookup returns `503`. `GET /ready` returns `200` when the database connection works and `503` when it does not; it does not check pending migrations.
+Use HTTPS. Every request except `GET /health` and `GET /ready` requires `X-Access-Control-Key`. A configured per-client decision key calls `POST /v1/decisions`; the consuming API supplies the tenant and unit organization. The same key may call `POST /v1/registrations/catalog` when `CanRegisterCatalog` is enabled. The configured `ClientId` identifies the registration actor for database writes. A registration-enabled client may register any tenant and unit organization. Non-anonymous decisions also require an Entra bearer token whose validated `oid` matches `subjectId`. Administrator operations require the separate admin key and a validated Entra bearer token. Access Control asks User Management to verify the actor's current administrative duties for each request; the key and token alone do not grant a tenant or UO scope. A missing or invalid key or actor token returns `401`, an actor without the required administrative scope returns `403`, and an unavailable User Management scope lookup returns `503`. `GET /ready` returns `200` when the database connection works and `503` when it does not; it does not check pending migrations.
 
 An active SuperAdmin can manage any UO in a tenant where User Management assigned that duty, tenant-wide searches, and global public policies. An active Admin can manage only assigned UOs. A UO-scoped administrator can use the UO-specific policy, entitlement, and role-grant operations for an assigned UO. Tenant-wide entitlement lists and policy searches without a UO filter require SuperAdmin. An explicit all-zero UO ID selects global public policies and also requires SuperAdmin. Access Control checks the selected tenant and UO before reading or changing administrator data.
 
-`POST /v1/registrations/catalog` accepts the tenant, unit organization ID, module code and name, and up to 1000 `{httpMethod, routeTemplate}` entries. It uses the existing decision client key when `CanRegisterCatalog` is enabled. A missing module is created; a different name or inactive module returns `409`. Missing policies start protected with zero entitlements. Replays do not overwrite policies or reactivate modules. An administrator can edit a registered policy with `PUT /v1/policies`, including setting `isPublic: true` with no required entitlements. A UO-specific policy, even one with zero entitlements, takes precedence over a global public policy for authenticated callers in that UO.
+`POST /v1/registrations/catalog` accepts the tenant, unit organization ID, and up to 1000 `{httpMethod, routeTemplate}` entries. It uses the existing decision client key when `CanRegisterCatalog` is enabled. Missing policies start protected with zero entitlements. Replays by the same or another registered client do not overwrite existing policy settings. A `409` is possible if a concurrent registration remains in conflict after retry. An administrator can edit a registered policy with `PUT /v1/policies`, including setting `isPublic: true` with no required entitlements. A UO-specific policy, even one with zero entitlements, takes precedence over a global public policy for authenticated callers in that UO.
 
 ## Decision
 
@@ -15,7 +15,6 @@ An active SuperAdmin can manage any UO in a tenant where User Management assigne
 ```json
 {
   "subjectId": "9155ff4d-2708-4770-b87e-e238645ec5df",
-  "module": "customers",
   "httpMethod": "GET",
   "routeTemplate": "/customers/{id}",
   "tenantId": "default",
@@ -32,19 +31,19 @@ The client middleware uses the authenticated user's `oid` as `subjectId`, forwar
 { "permit": true, "reason": "Permit", "authenticationRequired": false }
 ```
 
-The evaluator looks up the policy keyed by tenant, UO ID, module, HTTP method, and normalized route template. If no UO-specific policy exists, it may use a global public policy with the all-zero UO ID; a specific policy takes precedence. A missing policy denies. A protected policy requires a subject and nonzero UO ID. An asserted `isSuperAdmin` or `isUnitAdmin` duty then permits; otherwise, at least one active entitlement ID must be granted to a forwarded role ID in that tenant and UO. The required entitlement IDs use **OR** semantics. An anonymous caller without a global public policy gets `authenticationRequired: true` and `401`; an authenticated caller with no policy gets `403`. Other Deny decisions return `403`. Decision transport or store failures return `503` from the client middleware. User Management resolves the user before this decision call; its cached role claims and duties may remain effective for up to five seconds after a change.
+The evaluator looks up the policy keyed by tenant, UO ID, HTTP method, and normalized route template. If no UO-specific policy exists, it may use a global public policy with the all-zero UO ID; a specific policy takes precedence. A missing policy denies. A protected policy requires a subject and nonzero UO ID. An asserted `isSuperAdmin` or `isUnitAdmin` duty then permits; otherwise, at least one active entitlement ID must be granted to a forwarded role ID in that tenant and UO. The required entitlement IDs use **OR** semantics. An anonymous caller without a global public policy gets `authenticationRequired: true` and `401`; an authenticated caller with no policy gets `403`. Other Deny decisions return `403`. Decision transport or store failures return `503` from the client middleware. User Management resolves the user before this decision call; its cached role claims and duties may remain effective for up to five seconds after a change.
 
 ## Entitlement catalog
 
 Create an entitlement before referencing it in a grant or policy. `POST /v1/entitlements` with the admin key returns `201` and an object containing its generated `id`:
 
 ```json
-{ "tenantId": "default", "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "code": "customers.view", "displayName": "View customers" }
+{ "tenantId": "default", "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "displayName": "View customers" }
 ```
 
-Codes are normalized to lowercase and unique within `(tenantId, unitOrganizationId)`. Duplicate codes return `409`. `PUT /v1/entitlements/{id}/active?tenantId=default&unitOrganizationId=<uo-guid>` with `{ "isActive": false }` disables an entitlement; `true` re-enables it. Unknown IDs return `404`. Disabled entitlements remain in the catalog and existing grants, but they cannot satisfy a decision or be newly assigned to roles or protected policies. Each status change increments the shared revision and invalidates the local decision cache; other instances poll the revision and have a five-second cache lifetime as fallback.
+Entitlements are identified by generated GUIDs within their tenant and UO. Display names may repeat. `PUT /v1/entitlements/{id}/active?tenantId=default&unitOrganizationId=<uo-guid>` with `{ "isActive": false }` disables an entitlement; `true` re-enables it. Unknown IDs return `404`. Disabled entitlements remain in the catalog and existing grants, but they cannot satisfy a decision or be newly assigned to roles or protected policies. Each status change increments the shared revision and invalidates the local decision cache; other instances poll the revision and have a five-second cache lifetime as fallback.
 
-To change only the human-readable name, call `PUT /v1/entitlements/{id}/display-name?tenantId=default&unitOrganizationId=<uo-guid>` with `{ "displayName": "View customer records" }` and the admin key. It returns the updated entitlement (`200`), or `404` if the ID is outside that scope. A missing, blank, or over-200-character name returns `400`. This operation preserves the entitlement ID, code, active status, role grants, and policies. It does not advance the authorization revision or clear decision caches because the name is not used to make decisions.
+To change only the human-readable name, call `PUT /v1/entitlements/{id}/display-name?tenantId=default&unitOrganizationId=<uo-guid>` with `{ "displayName": "View customer records" }` and the admin key. It returns the updated entitlement (`200`), or `404` if the ID is outside that scope. A missing, blank, or over-200-character name returns `400`. This operation preserves the entitlement ID, active status, role grants, and policies. It does not advance the authorization revision or clear decision caches because the name is not used to make decisions.
 
 ## Endpoint policy administration
 
@@ -54,7 +53,6 @@ To change only the human-readable name, call `PUT /v1/entitlements/{id}/display-
 {
   "tenantId": "default",
   "unitOrganizationId": "33333333-3333-3333-3333-333333333333",
-  "module": "customers",
   "httpMethod": "GET",
   "routeTemplate": "/customers/{id}",
   "isPublic": false,
@@ -64,9 +62,9 @@ To change only the human-readable name, call `PUT /v1/entitlements/{id}/display-
 
 A public policy uses `"isPublic": true` and `"requiredEntitlementIds": []`; an all-zero UO ID makes it global. A protected policy requires a nonzero UO ID and 1–32 active entitlement IDs from the same tenant and UO. Method is normalized to uppercase; route and other key parts to lowercase. Route parameters remain templates, never concrete customer IDs.
 
-`GET /v1/policies?tenantId=default&unitOrganizationId=<uo-guid>&module=customers&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D` returns the policy (`200`) or `404`.
+`GET /v1/policies?tenantId=default&unitOrganizationId=<uo-guid>&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D` returns the policy (`200`) or `404`.
 
-`DELETE /v1/policies` accepts only the key fields (`tenantId`, `unitOrganizationId`, `module`, `httpMethod`, `routeTemplate`) in a JSON body and returns `204`, including if no active policy matches. Deletion sets `IsActive=false`: the policy row remains in the database, but the decision evaluator, `GET`, and search exclude it. The authorization revision advances so other instances invalidate cached decisions. A later `PUT` with the same key restores and replaces the policy.
+`DELETE /v1/policies` accepts only the key fields (`tenantId`, `unitOrganizationId`, `httpMethod`, `routeTemplate`) in a JSON body and returns `204`, including if no active policy matches. Deletion sets `IsActive=false`: the policy row remains in the database, but the decision evaluator, `GET`, and search exclude it. The authorization revision advances so other instances invalidate cached decisions. A later `PUT` with the same key restores and replaces the policy.
 
 ## Role grants
 
@@ -91,8 +89,8 @@ The administrator can list registered entitlements, including disabled and unref
 - `GET /v1/unit-organizations/{id}/entitlements?tenantId=default&page=1&pageSize=100` lists entries in one UO. The all-zero GUID is invalid for this filtered route.
 - `GET /v1/entitlements/{id}?tenantId=default&unitOrganizationId=<uo-guid>` returns one entitlement in the selected scope, or `404`.
 
-Both return `{ "items": [{ "id": "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "tenantId": "default", "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "code": "customers.view", "displayName": "View customers", "isActive": true }], "totalCount": 1, "page": 1, "pageSize": 100 }`. Rows are ordered by UO ID, code, and entitlement ID. `page` starts at 1, `pageSize` must be 1–100, and invalid or overflowing pagination returns `400`. The endpoint requires the administrator key.
+Both return `{ "items": [{ "id": "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "tenantId": "default", "unitOrganizationId": "33333333-3333-3333-3333-333333333333", "displayName": "View customers", "isActive": true }], "totalCount": 1, "page": 1, "pageSize": 100 }`. Rows are ordered by UO ID, display name, and entitlement ID. `page` starts at 1, `pageSize` must be 1–100, and invalid or overflowing pagination returns `400`. The endpoint requires the administrator key.
 
-`GET /v1/policies` still reads one active policy by its complete tenant, UO ID, module, HTTP method, and route-template key. For frontend tables, `GET /v1/policies/search?tenantId=default&page=1&pageSize=100` returns a `PolicyPageResponse` with `items`, `totalCount`, `page`, and `pageSize`. Optional `unitOrganizationId`, `module`, and `httpMethod` filters narrow the results; an explicit all-zero UO ID selects global public policies. Each item includes the required entitlement IDs. Search is read-only, excludes inactive policies, and queries the database directly rather than decision caches.
+`GET /v1/policies` still reads one active policy by its complete tenant, UO ID, HTTP method, and route-template key. For frontend tables, `GET /v1/policies/search?tenantId=default&page=1&pageSize=100` returns a `PolicyPageResponse` with `items`, `totalCount`, `page`, and `pageSize`. Optional `unitOrganizationId` and `httpMethod` filters narrow the results; an explicit all-zero UO ID selects global public policies. Each item includes the required entitlement IDs. Search is read-only, excludes inactive policies, and queries the database directly rather than decision caches.
 
-The decision service validates the forwarded subject token and uses the role IDs asserted by the consuming API. Keep client credentials secret. A client key can request decisions for any tenant, module, and unit organization. The fresh initial migration targets an empty first-version database and does not import legacy strings.
+The decision service validates the forwarded subject token and uses the role IDs asserted by the consuming API. Keep client credentials secret. A client key can request decisions for any tenant and unit organization. The fresh initial migration targets an empty first-version database and does not import legacy strings.

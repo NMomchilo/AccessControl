@@ -15,7 +15,6 @@ X-Access-Control-Key: {{decisionKey}}
 {
   "subjectId": "alice",
   "roles": ["advisor"],
-  "module": "customers",
   "httpMethod": "GET",
   "routeTemplate": "/customers/{id}",
   "tenantId": "tenant-a"
@@ -28,7 +27,6 @@ X-Access-Control-Key: {{adminKey}}
 
 {
   "tenantId": "tenant-a",
-  "module": "customers",
   "httpMethod": "GET",
   "routeTemplate": "/customers/{id}",
   "isPublic": false,

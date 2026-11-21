@@ -9,52 +9,38 @@ namespace AccessControl.Infrastructure.Database;
 public sealed class CatalogRegistrationStore(AccessControlDbContext db, AuthorizationCache cache,
     ILogger<CatalogRegistrationStore> logger) : ICatalogRegistrationService
 {
-    public async Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request,
+    public async Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request, string clientId,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(clientId) || clientId.Length > 200)
+            throw new ArgumentException("A validated client ID is required.", nameof(clientId));
         for (int attempt = 0; attempt < 2; attempt++)
         {
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
             try
             {
-                ModuleEntity? module = await db.Modules.SingleOrDefaultAsync(value =>
-                    value.TenantId == request.TenantId && value.UnitOrganizationId == request.UnitOrganizationId &&
-                    value.Code == request.Module, cancellationToken);
-                if (module is not null && (!module.IsActive || module.Name != request.ModuleName))
-                    throw new CatalogRegistrationConflictException();
-                int modulesCreated = 0;
-                if (module is null)
-                {
-                    db.Modules.Add(new ModuleEntity
-                    {
-                        TenantId = request.TenantId, UnitOrganizationId = request.UnitOrganizationId,
-                        Code = request.Module, Name = request.ModuleName
-                    });
-                    modulesCreated = 1;
-                }
-
-                var existing = await db.EndpointPolicies.AsNoTracking().Where(value =>
+                var existing = await db.EndpointPolicies.Where(value =>
                         value.TenantId == request.TenantId &&
-                        value.UnitOrganizationId == request.UnitOrganizationId && value.Module == request.Module)
-                    .Select(value => new { value.HttpMethod, value.RouteTemplate })
+                        value.UnitOrganizationId == request.UnitOrganizationId)
                     .ToListAsync(cancellationToken);
-                var known = existing.Select(value => (value.HttpMethod, value.RouteTemplate)).ToHashSet();
+                var known = existing.ToDictionary(value => (value.HttpMethod, value.RouteTemplate));
                 int policiesCreated = 0;
                 foreach (CatalogEndpoint endpoint in request.Endpoints)
                 {
                     var key = (endpoint.HttpMethod, endpoint.RouteTemplate);
-                    if (known.Contains(key)) continue;
-                    db.EndpointPolicies.Add(new EndpointPolicyEntity
+                    if (known.ContainsKey(key)) continue;
+                    EndpointPolicyEntity policy = new()
                     {
                         TenantId = request.TenantId, UnitOrganizationId = request.UnitOrganizationId,
-                        Module = request.Module, HttpMethod = key.HttpMethod, RouteTemplate = key.RouteTemplate,
+                        HttpMethod = key.HttpMethod, RouteTemplate = key.RouteTemplate,
                         IsPublic = false, IsActive = true
-                    });
-                    known.Add(key);
+                    };
+                    db.EndpointPolicies.Add(policy);
+                    known.Add(key, policy);
                     policiesCreated++;
                 }
 
-                if (modulesCreated + policiesCreated > 0)
+                if (db.ChangeTracker.HasChanges())
                 {
                     await db.SaveChangesAsync(cancellationToken);
                     if (policiesCreated > 0)
@@ -71,9 +57,9 @@ public sealed class CatalogRegistrationStore(AccessControlDbContext db, Authoriz
                 }
                 await transaction.CommitAsync(cancellationToken);
                 if (policiesCreated > 0) cache.InvalidateAll("catalog registration");
-                logger.LogInformation("Catalog registered for {TenantId} {UnitOrganizationId} {Module}; modules {ModulesCreated}, policies {PoliciesCreated}",
-                    request.TenantId, request.UnitOrganizationId, request.Module, modulesCreated, policiesCreated);
-                return new CatalogRegistrationResult(modulesCreated, policiesCreated);
+                logger.LogInformation("Catalog registered for {TenantId} {UnitOrganizationId} by {ClientId}; policies {PoliciesCreated}",
+                    request.TenantId, request.UnitOrganizationId, clientId, policiesCreated);
+                return new CatalogRegistrationResult(policiesCreated);
             }
             catch (DbUpdateException) when (attempt == 0)
             {

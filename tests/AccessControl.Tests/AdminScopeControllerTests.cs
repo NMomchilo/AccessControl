@@ -21,7 +21,7 @@ public sealed class AdminScopeControllerTests
         FakeStore store = new();
         PoliciesController controller = Policies(store, scope);
         SetActor(controller, "");
-        PolicyRequest request = new("tenant-a", "customers", "GET", "/status", false,
+        PolicyRequest request = new("tenant-a", "GET", "/status", false,
             [Guid.NewGuid()], Organization);
 
         Assert.IsType<ForbidResult>(await controller.UpsertAsync(request, CancellationToken.None));
@@ -31,7 +31,7 @@ public sealed class AdminScopeControllerTests
         Assert.Equal(1, store.Writes);
         Assert.Equal(("actor-1", "tenant-a", Organization, false), scope.LastCall);
         Assert.IsType<ForbidResult>(await controller.DeleteAsync(
-            new("tenant-a", "customers", "GET", "/status", OtherOrganization), CancellationToken.None));
+            new("tenant-a", "GET", "/status", OtherOrganization), CancellationToken.None));
         Assert.Equal(1, store.Writes);
     }
 
@@ -44,9 +44,9 @@ public sealed class AdminScopeControllerTests
         SetActor(controller, "actor-1");
 
         Assert.IsType<ForbidResult>(await controller.UpsertAsync(
-            new("tenant-a", "customers", "GET", "/status", true, [], Guid.Empty), CancellationToken.None));
+            new("tenant-a", "GET", "/status", true, [], Guid.Empty), CancellationToken.None));
         Assert.Equal(("actor-1", "tenant-a", Guid.Empty, true), scope.LastCall);
-        Assert.IsType<ForbidResult>(await controller.SearchAsync("tenant-a", null, null, null,
+        Assert.IsType<ForbidResult>(await controller.SearchAsync("tenant-a", null, null,
             cancellationToken: CancellationToken.None));
         Assert.Equal(("actor-1", "tenant-a", (Guid?)null, true), scope.LastCall);
         Assert.Equal(0, store.Writes);
@@ -73,10 +73,10 @@ public sealed class AdminScopeControllerTests
             NullLogger<EntitlementsController>.Instance);
         SetActor(controller, "actor-1");
         Assert.IsType<ForbidResult>(await controller.CreateAsync(
-            new("tenant-a", OtherOrganization, "read", "Read"), CancellationToken.None));
+            new("tenant-a", OtherOrganization, "Read"), CancellationToken.None));
         Assert.Equal(0, entitlements.Writes);
         Assert.IsType<CreatedResult>(await controller.CreateAsync(
-            new("tenant-a", Organization, "read", "Read"), CancellationToken.None));
+            new("tenant-a", Organization, "Read"), CancellationToken.None));
         Assert.Equal(1, entitlements.Writes);
         Guid entitlementId = Guid.NewGuid();
         Assert.IsType<NotFoundResult>(await controller.SetActiveAsync(entitlementId, "tenant-a", Organization,
@@ -111,7 +111,7 @@ public sealed class AdminScopeControllerTests
     private sealed class FakeStore : IAuthorizationStore
     {
         public int Writes { get; private set; }
-        public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module,
+        public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId,
             string httpMethod, string routeTemplate, CancellationToken cancellationToken) => Task.FromResult<EndpointPolicy?>(null);
         public Task<IReadOnlySet<Guid>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId,
             IReadOnlyList<Guid> roleIds, CancellationToken cancellationToken) => Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());
@@ -122,7 +122,7 @@ public sealed class AdminScopeControllerTests
             Writes++;
             return Task.CompletedTask;
         }
-        public Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module,
+        public Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId,
             string httpMethod, string routeTemplate, CancellationToken cancellationToken)
         {
             Writes++;
@@ -138,7 +138,7 @@ public sealed class AdminScopeControllerTests
 
     private sealed class FakePolicies : IPolicyCatalog
     {
-        public Task<PolicyPageResponse> SearchAsync(string tenantId, Guid? unitOrganizationId, string? module,
+        public Task<PolicyPageResponse> SearchAsync(string tenantId, Guid? unitOrganizationId,
             string? httpMethod, int page, int pageSize, CancellationToken cancellationToken) =>
             Task.FromResult(new PolicyPageResponse([], page, pageSize, 0));
     }
@@ -146,11 +146,11 @@ public sealed class AdminScopeControllerTests
     private sealed class FakeEntitlements : IEntitlementCatalog
     {
         public int Writes { get; private set; }
-        public Task<EntitlementInfo> CreateAsync(string tenantId, Guid unitOrganizationId, string code,
+        public Task<EntitlementInfo> CreateAsync(string tenantId, Guid unitOrganizationId,
             string displayName, CancellationToken cancellationToken)
         {
             Writes++;
-            return Task.FromResult(new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId, code, displayName, true));
+            return Task.FromResult(new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId, displayName, true));
         }
         public Task<bool> SetActiveAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
             bool isActive, CancellationToken cancellationToken) => Task.FromResult(false);

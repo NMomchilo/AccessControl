@@ -7,9 +7,9 @@ namespace AccessControl.Infrastructure.Caching;
 public sealed class CachingAuthorizationStore(IAuthorizationStore source, AuthorizationCache cache,
     ILogger<CachingAuthorizationStore> logger) : IAuthorizationStore
 {
-    public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate,
-        CancellationToken cancellationToken) => cache.GetPolicyAsync(tenantId, unitOrganizationId, module, httpMethod, routeTemplate,
-            token => source.GetPolicyAsync(tenantId, unitOrganizationId, module, httpMethod, routeTemplate, token), cancellationToken);
+    public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string httpMethod, string routeTemplate,
+        CancellationToken cancellationToken) => cache.GetPolicyAsync(tenantId, unitOrganizationId, httpMethod, routeTemplate,
+            token => source.GetPolicyAsync(tenantId, unitOrganizationId, httpMethod, routeTemplate, token), cancellationToken);
 
     public Task<IReadOnlySet<Guid>> GetEntitlementsAsync(string tenantId, Guid unitOrganizationId, IReadOnlyList<Guid> roleIds,
         CancellationToken cancellationToken)
@@ -32,10 +32,10 @@ public sealed class CachingAuthorizationStore(IAuthorizationStore source, Author
         logger.LogDebug("Local cache cleared after policy upsert");
     }
 
-    public async Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate,
+    public async Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string httpMethod, string routeTemplate,
         CancellationToken cancellationToken)
     {
-        await source.DeletePolicyAsync(tenantId, unitOrganizationId, module, httpMethod, routeTemplate, cancellationToken);
+        await source.DeletePolicyAsync(tenantId, unitOrganizationId, httpMethod, routeTemplate, cancellationToken);
         cache.InvalidateAll("policy delete");
         logger.LogDebug("Local cache cleared after policy delete");
     }

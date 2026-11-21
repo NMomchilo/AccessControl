@@ -13,15 +13,15 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         dbContext.AuthorizationRevisions.AsNoTracking().Where(x => x.Id == AuthorizationRevisionEntity.SingletonId)
             .Select(x => x.Version).SingleAsync(cancellationToken);
 
-    public async Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
+    public async Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
     {
         EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.AsNoTracking()
             .Include(x => x.RequiredEntitlements)
-            .SingleOrDefaultAsync(x => x.IsActive && x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
+            .SingleOrDefaultAsync(x => x.IsActive && x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId &&
                 x.HttpMethod == httpMethod && x.RouteTemplate == routeTemplate, cancellationToken);
-        logger.LogDebug("Loaded endpoint policy for {TenantId} {Module} {HttpMethod} {RouteTemplate}: {Found}",
-            tenantId, module, httpMethod, routeTemplate, entity is not null);
-        return entity is null ? null : new EndpointPolicy(entity.TenantId, entity.Module, entity.HttpMethod,
+        logger.LogDebug("Loaded endpoint policy for {TenantId} {HttpMethod} {RouteTemplate}: {Found}",
+            tenantId, httpMethod, routeTemplate, entity is not null);
+        return entity is null ? null : new EndpointPolicy(entity.TenantId, entity.HttpMethod,
             entity.RouteTemplate, entity.IsPublic, entity.RequiredEntitlements.Select(x => x.EntitlementId).ToList(), entity.UnitOrganizationId);
     }
 
@@ -57,7 +57,7 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         await ValidateActiveEntitlementsAsync(policy.TenantId, policy.UnitOrganizationId,
             policy.RequiredEntitlementIds, cancellationToken);
         EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.SingleOrDefaultAsync(x =>
-            x.TenantId == policy.TenantId && x.UnitOrganizationId == policy.UnitOrganizationId && x.Module == policy.Module &&
+            x.TenantId == policy.TenantId && x.UnitOrganizationId == policy.UnitOrganizationId &&
             x.HttpMethod == policy.HttpMethod && x.RouteTemplate == policy.RouteTemplate, cancellationToken);
 
         if (entity is null)
@@ -66,7 +66,6 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
             {
                 TenantId = policy.TenantId,
                 UnitOrganizationId = policy.UnitOrganizationId,
-                Module = policy.Module,
                 HttpMethod = policy.HttpMethod,
                 RouteTemplate = policy.RouteTemplate,
                 IsPublic = policy.IsPublic
@@ -98,16 +97,16 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         await dbContext.SaveChangesAsync(cancellationToken);
         await IncrementRevisionAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
-        logger.LogInformation("Stored endpoint policy {TenantId} {Module} {HttpMethod} {RouteTemplate}; public {IsPublic}, entitlement count {Count}",
-            policy.TenantId, policy.Module, policy.HttpMethod, policy.RouteTemplate, policy.IsPublic, policy.RequiredEntitlementIds.Count);
+        logger.LogInformation("Stored endpoint policy {TenantId} {HttpMethod} {RouteTemplate}; public {IsPublic}, entitlement count {Count}",
+            policy.TenantId, policy.HttpMethod, policy.RouteTemplate, policy.IsPublic, policy.RequiredEntitlementIds.Count);
     }
 
-    public async Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string module, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
+    public async Task DeletePolicyAsync(string tenantId, Guid unitOrganizationId, string httpMethod, string routeTemplate, CancellationToken cancellationToken)
     {
         await using var transaction = dbContext.Database.CurrentTransaction is null
             ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
         EndpointPolicyEntity? entity = await dbContext.EndpointPolicies.SingleOrDefaultAsync(x =>
-            x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId && x.Module == module &&
+            x.TenantId == tenantId && x.UnitOrganizationId == unitOrganizationId &&
             x.HttpMethod == httpMethod && x.RouteTemplate == routeTemplate, cancellationToken);
         int deactivated = entity is { IsActive: true } ? 1 : 0;
         if (entity is not null)
@@ -117,8 +116,8 @@ public sealed class SqlAuthorizationStore(AccessControlDbContext dbContext, ILog
         }
         await IncrementRevisionAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
-        logger.LogInformation("Deactivated {Count} endpoint policy rows for {TenantId} {Module} {HttpMethod} {RouteTemplate}",
-            deactivated, tenantId, module, httpMethod, routeTemplate);
+        logger.LogInformation("Deactivated {Count} endpoint policy rows for {TenantId} {HttpMethod} {RouteTemplate}",
+            deactivated, tenantId, httpMethod, routeTemplate);
     }
 
     public async Task ReplaceRoleEntitlementsAsync(string tenantId, Guid unitOrganizationId, Guid roleId, IReadOnlyList<Guid> entitlementIds, CancellationToken cancellationToken)

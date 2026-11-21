@@ -24,27 +24,21 @@ public sealed class CatalogRegistrationTests
         using AuthorizationCache cache = new(Options.Create(new AccessControlCacheOptions()),
             NullLogger<AuthorizationCache>.Instance);
         CatalogRegistrationStore store = new(db, cache, NullLogger<CatalogRegistrationStore>.Instance);
-        CatalogRegistrationRequest request = new("default", Organization, "customers", "Customers",
+        CatalogRegistrationRequest request = new("default", Organization,
             [new CatalogEndpoint("GET", "/customers/{id}")]);
 
-        Assert.Equal(new CatalogRegistrationResult(1, 1), await store.RegisterAsync(request, default));
+        Assert.Equal(new CatalogRegistrationResult(1), await store.RegisterAsync(request, "customer-api", default));
         EndpointPolicyEntity policy = await db.EndpointPolicies.SingleAsync();
         Assert.False(policy.IsPublic);
         Assert.Empty(policy.RequiredEntitlements);
         AuthorizationService administration = new(new SqlAuthorizationStore(db,
             NullLogger<SqlAuthorizationStore>.Instance), NullLogger<AuthorizationService>.Instance);
-        await administration.UpsertPolicyAsync(new PolicyRequest("default", "customers", "GET",
+        await administration.UpsertPolicyAsync(new PolicyRequest("default", "GET",
             "/customers/{id}", true, [], Organization), default);
-        Assert.Equal(new CatalogRegistrationResult(0, 0), await store.RegisterAsync(request, default));
+        Assert.Equal(new CatalogRegistrationResult(0), await store.RegisterAsync(request, "customer-api", default));
         Assert.True((await db.EndpointPolicies.SingleAsync()).IsPublic);
-        Assert.Single(await db.Modules.ToListAsync());
-        Assert.Equal("Customers", (await db.Modules.SingleAsync()).Name);
-        await Assert.ThrowsAsync<CatalogRegistrationConflictException>(() => store.RegisterAsync(
-            request with { ModuleName = "Changed" }, default));
-        ModuleEntity module = await db.Modules.SingleAsync();
-        module.IsActive = false;
-        await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<CatalogRegistrationConflictException>(() => store.RegisterAsync(request, default));
+        Assert.Equal(new CatalogRegistrationResult(0), await store.RegisterAsync(request, "another-api", default));
+        Assert.True((await db.EndpointPolicies.SingleAsync()).IsPublic);
     }
 
     [Fact]
@@ -57,7 +51,7 @@ public sealed class CatalogRegistrationTests
         await db.Database.EnsureCreatedAsync();
         db.EndpointPolicies.Add(new EndpointPolicyEntity
         {
-            TenantId = "default", UnitOrganizationId = Guid.Empty, Module = "customers",
+            TenantId = "default", UnitOrganizationId = Guid.Empty,
             HttpMethod = "GET", RouteTemplate = "/health", IsPublic = true
         });
         await db.SaveChangesAsync();
@@ -65,8 +59,8 @@ public sealed class CatalogRegistrationTests
             NullLogger<AuthorizationCache>.Instance);
         CatalogRegistrationStore store = new(db, cache, NullLogger<CatalogRegistrationStore>.Instance);
 
-        CatalogRegistrationResult result = await store.RegisterAsync(new("default", Organization, "customers",
-            "Customers", [new CatalogEndpoint("GET", "/health")]), default);
+        CatalogRegistrationResult result = await store.RegisterAsync(new("default", Organization,
+            [new CatalogEndpoint("GET", "/health")]), "customer-api", default);
 
         Assert.Equal(1, result.PoliciesCreated);
         Assert.Equal(2, await db.EndpointPolicies.CountAsync());

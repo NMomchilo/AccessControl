@@ -32,7 +32,6 @@ namespace AccessControl.Infrastructure.Database.Migrations
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Module = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     HttpMethod = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: false),
                     RouteTemplate = table.Column<string>(type: "nvarchar(512)", maxLength: 512, nullable: false),
                     IsPublic = table.Column<bool>(type: "bit", nullable: false),
@@ -53,7 +52,6 @@ namespace AccessControl.Infrastructure.Database.Migrations
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Code = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     DisplayName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
                     LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
@@ -123,9 +121,9 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 values: new object[] { new Guid("a9acd89c-9a57-48c3-9dd1-222222222221"), new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc), "Migration", 0L });
 
             migrationBuilder.CreateIndex(
-                name: "IX_EndpointPolicies_TenantId_UnitOrganizationId_Module_HttpMethod_RouteTemplate",
+                name: "IX_EndpointPolicies_TenantId_UnitOrganizationId_HttpMethod_RouteTemplate",
                 table: "EndpointPolicies",
-                columns: new[] { "TenantId", "UnitOrganizationId", "Module", "HttpMethod", "RouteTemplate" },
+                columns: new[] { "TenantId", "UnitOrganizationId", "HttpMethod", "RouteTemplate" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -143,12 +141,6 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 name: "IX_EndpointPolicyEntitlements_TenantId_UnitOrganizationId_EntitlementId",
                 table: "EndpointPolicyEntitlements",
                 columns: new[] { "TenantId", "UnitOrganizationId", "EntitlementId" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Entitlements_TenantId_UnitOrganizationId_Code",
-                table: "Entitlements",
-                columns: new[] { "TenantId", "UnitOrganizationId", "Code" },
-                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_RoleEntitlements_TenantId_UnitOrganizationId_EntitlementId",

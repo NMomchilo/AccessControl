@@ -36,7 +36,6 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationO
 });
 builder.WebHost.UseUrls("http://127.0.0.1:0");
 builder.Logging.ClearProviders();
-builder.Configuration["AccessControl:Module"] = "integration";
 builder.Configuration["AccessControl:DefaultTenantId"] = "default";
 builder.Configuration["AccessControl:RoleIdClaimType"] = UserManagementClaims.RoleId;
 builder.Configuration["AccessControl:RoleIdentityAuthenticationType"] = UserManagementClaims.IdentityAuthenticationType;

@@ -33,26 +33,26 @@ public sealed class TenantRoleIdentityTests
         db.Entitlements.Add(new EntitlementEntity
         {
             Id = TestEntitlements.View, TenantId = "tenant-a", UnitOrganizationId = organizationId,
-            Code = "customers.view", DisplayName = "View customers", IsActive = true
+ DisplayName = "View customers", IsActive = true
         });
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
         SqlAuthorizationStore store = new(db, NullLogger<SqlAuthorizationStore>.Instance);
         Guid currentRole = allowed;
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
-        await store.UpsertPolicyAsync(new EndpointPolicy("tenant-a", "customers", "GET", "/customers/{id}",
+        await store.UpsertPolicyAsync(new EndpointPolicy("tenant-a", "GET", "/customers/{id}",
             false, [TestEntitlements.View], organizationId), CancellationToken.None);
         await store.ReplaceRoleEntitlementsAsync("tenant-a", organizationId, allowed, [TestEntitlements.View], CancellationToken.None);
 
-        Assert.True((await service.DecideAsync(new DecisionRequest(Oid, "customers", "GET",
+        Assert.True((await service.DecideAsync(new DecisionRequest(Oid, "GET",
             "/customers/{id}", "tenant-a", organizationId, [currentRole]), CancellationToken.None)).Permit);
         currentRole = denied;
-        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, "customers", "GET",
+        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, "GET",
             "/customers/{id}", "tenant-a", organizationId, [currentRole]), CancellationToken.None)).Permit);
         currentRole = allowed;
-        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, "customers", "GET",
+        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, "GET",
             "/customers/{id}", "tenant-b", organizationId, [currentRole]), CancellationToken.None)).Permit);
-        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, "customers", "GET",
+        Assert.False((await service.DecideAsync(new DecisionRequest(Oid, "GET",
             "/customers/{id}", "tenant-a", OrganizationB, [currentRole]), CancellationToken.None)).Permit);
     }
 
