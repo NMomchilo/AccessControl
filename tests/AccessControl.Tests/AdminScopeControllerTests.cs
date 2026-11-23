@@ -73,10 +73,10 @@ public sealed class AdminScopeControllerTests
             NullLogger<EntitlementsController>.Instance);
         SetActor(controller, "actor-1");
         Assert.IsType<ForbidResult>(await controller.CreateAsync(
-            new("tenant-a", OtherOrganization, "Read"), CancellationToken.None));
+            new("tenant-a", OtherOrganization, "Read", "customers.read"), CancellationToken.None));
         Assert.Equal(0, entitlements.Writes);
         Assert.IsType<CreatedResult>(await controller.CreateAsync(
-            new("tenant-a", Organization, "Read"), CancellationToken.None));
+            new("tenant-a", Organization, "Read", "customers.read"), CancellationToken.None));
         Assert.Equal(1, entitlements.Writes);
         Guid entitlementId = Guid.NewGuid();
         Assert.IsType<NotFoundResult>(await controller.SetActiveAsync(entitlementId, "tenant-a", Organization,
@@ -147,10 +147,10 @@ public sealed class AdminScopeControllerTests
     {
         public int Writes { get; private set; }
         public Task<EntitlementInfo> CreateAsync(string tenantId, Guid unitOrganizationId,
-            string displayName, CancellationToken cancellationToken)
+            string displayName, string code, CancellationToken cancellationToken)
         {
             Writes++;
-            return Task.FromResult(new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId, displayName, true));
+            return Task.FromResult(new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId, displayName, true, code));
         }
         public Task<bool> SetActiveAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
             bool isActive, CancellationToken cancellationToken) => Task.FromResult(false);

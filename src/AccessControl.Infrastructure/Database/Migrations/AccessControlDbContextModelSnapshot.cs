@@ -149,6 +149,11 @@ namespace AccessControl.Infrastructure.Database.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasDefaultValueSql("NEWSEQUENTIALID()");
 
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -174,6 +179,9 @@ namespace AccessControl.Infrastructure.Database.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "UnitOrganizationId", "Code")
+                        .IsUnique();
 
                     b.ToTable("Entitlements", (string)null);
                 });

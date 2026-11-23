@@ -85,7 +85,7 @@ public sealed class DecisionApiTests
     {
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
-        CreateEntitlementRequest request = new("tenant-a", Organization, "Export customers");
+        CreateEntitlementRequest request = new("tenant-a", Organization, "Export customers", "customers.export");
         using HttpRequestMessage denied = new(HttpMethod.Post, "/v1/entitlements")
         {
             Content = JsonContent.Create(request)
@@ -399,8 +399,8 @@ public sealed class DecisionApiTests
     private sealed class FakeEntitlementCatalog : IEntitlementCatalog
     {
         public Task<EntitlementInfo> CreateAsync(string tenantId, Guid unitOrganizationId,
-            string displayName, CancellationToken cancellationToken) =>
-            Task.FromResult(new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId, displayName, true));
+            string displayName, string code, CancellationToken cancellationToken) =>
+            Task.FromResult(new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId, displayName, true, code));
 
         public Task<bool> SetActiveAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
             bool isActive, CancellationToken cancellationToken) => Task.FromResult(true);
@@ -408,20 +408,20 @@ public sealed class DecisionApiTests
         public Task<EntitlementInfo?> UpdateDisplayNameAsync(string tenantId, Guid unitOrganizationId,
             Guid entitlementId, string displayName, CancellationToken cancellationToken) =>
             Task.FromResult<EntitlementInfo?>(unitOrganizationId == Organization
-                ? new EntitlementInfo(entitlementId, tenantId, unitOrganizationId, displayName, true)
+                ? new EntitlementInfo(entitlementId, tenantId, unitOrganizationId, displayName, true, "customers.view")
                 : null);
 
         public Task<EntitlementInfo?> GetAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
             CancellationToken cancellationToken) => Task.FromResult<EntitlementInfo?>(
                 unitOrganizationId == Organization ? new EntitlementInfo(entitlementId, tenantId,
-                    unitOrganizationId, "View customers", true) : null);
+                    unitOrganizationId, "View customers", true, "customers.view") : null);
 
         public Task<EntitlementPageResponse> ListAsync(string tenantId, Guid? unitOrganizationId, int page,
             int pageSize, CancellationToken cancellationToken)
         {
             string[] values = unitOrganizationId.HasValue ? ["customers.view"] : ["customers.view", "orders.view"];
             return Task.FromResult(new EntitlementPageResponse(values.Skip((page - 1) * pageSize).Take(pageSize)
-                .Select(value => new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId ?? Organization, value, true)).ToArray(),
+                .Select(value => new EntitlementInfo(Guid.NewGuid(), tenantId, unitOrganizationId ?? Organization, value, true, value)).ToArray(),
                 page, pageSize, values.Length));
         }
     }

@@ -52,6 +52,7 @@ namespace AccessControl.Infrastructure.Database.Migrations
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false, defaultValueSql: "NEWSEQUENTIALID()"),
                     TenantId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     UnitOrganizationId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Code = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     DisplayName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
                     LastUpdateUser = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
@@ -141,6 +142,12 @@ namespace AccessControl.Infrastructure.Database.Migrations
                 name: "IX_EndpointPolicyEntitlements_TenantId_UnitOrganizationId_EntitlementId",
                 table: "EndpointPolicyEntitlements",
                 columns: new[] { "TenantId", "UnitOrganizationId", "EntitlementId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Entitlements_TenantId_UnitOrganizationId_Code",
+                table: "Entitlements",
+                columns: new[] { "TenantId", "UnitOrganizationId", "Code" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_RoleEntitlements_TenantId_UnitOrganizationId_EntitlementId",

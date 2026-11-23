@@ -14,17 +14,31 @@ public sealed class SqlEntitlementCatalog(AccessControlDbContext db, Authorizati
     private readonly ILogger<SqlEntitlementCatalog> _logger = logger ?? NullLogger<SqlEntitlementCatalog>.Instance;
 
     public async Task<EntitlementInfo> CreateAsync(string tenantId, Guid unitOrganizationId,
-        string displayName, CancellationToken cancellationToken)
+        string displayName, string code, CancellationToken cancellationToken)
     {
+        if (await db.Entitlements.AnyAsync(value => value.TenantId == tenantId &&
+                value.UnitOrganizationId == unitOrganizationId && value.Code == code, cancellationToken))
+            throw new EntitlementCodeConflictException();
         EntitlementEntity entity = new()
         {
             Id = Guid.NewGuid(), TenantId = tenantId, UnitOrganizationId = unitOrganizationId,
-            DisplayName = displayName, IsActive = true
+            DisplayName = displayName, Code = code, IsActive = true
         };
         await using var transaction = db.Database.CurrentTransaction is null
             ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         db.Entitlements.Add(entity);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            db.Entry(entity).State = EntityState.Detached;
+            if (await db.Entitlements.AsNoTracking().AnyAsync(value => value.TenantId == tenantId &&
+                    value.UnitOrganizationId == unitOrganizationId && value.Code == code, cancellationToken))
+                throw new EntitlementCodeConflictException();
+            throw;
+        }
         await IncrementRevisionAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
         cache?.InvalidateAll("entitlement created");
@@ -78,10 +92,10 @@ public sealed class SqlEntitlementCatalog(AccessControlDbContext db, Authorizati
             value.TenantId == tenantId && (!unitOrganizationId.HasValue ||
                 value.UnitOrganizationId == unitOrganizationId.Value));
         int totalCount = await query.CountAsync(cancellationToken);
-        EntitlementInfo[] items = await query.OrderBy(value => value.UnitOrganizationId).ThenBy(value => value.DisplayName)
+        EntitlementInfo[] items = await query.OrderBy(value => value.UnitOrganizationId).ThenBy(value => value.Code)
             .ThenBy(value => value.Id).Skip((page - 1) * pageSize).Take(pageSize)
             .Select(value => new EntitlementInfo(value.Id, value.TenantId, value.UnitOrganizationId,
-                value.DisplayName, value.IsActive)).ToArrayAsync(cancellationToken);
+                value.DisplayName, value.IsActive, value.Code)).ToArrayAsync(cancellationToken);
         return new EntitlementPageResponse(items, page, pageSize, totalCount);
     }
 
@@ -90,7 +104,7 @@ public sealed class SqlEntitlementCatalog(AccessControlDbContext db, Authorizati
         db.Entitlements.AsNoTracking().Where(value => value.TenantId == tenantId &&
                 value.UnitOrganizationId == unitOrganizationId && value.Id == entitlementId)
             .Select(value => new EntitlementInfo(value.Id, value.TenantId, value.UnitOrganizationId,
-                value.DisplayName, value.IsActive))
+                value.DisplayName, value.IsActive, value.Code))
             .SingleOrDefaultAsync(cancellationToken);
 
     private async Task IncrementRevisionAsync(CancellationToken cancellationToken)
@@ -106,5 +120,5 @@ public sealed class SqlEntitlementCatalog(AccessControlDbContext db, Authorizati
     }
 
     private static EntitlementInfo Map(EntitlementEntity value) =>
-        new(value.Id, value.TenantId, value.UnitOrganizationId, value.DisplayName, value.IsActive);
+        new(value.Id, value.TenantId, value.UnitOrganizationId, value.DisplayName, value.IsActive, value.Code);
 }

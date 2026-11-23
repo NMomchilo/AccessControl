@@ -48,6 +48,8 @@ public sealed class AccessControlDbContext(DbContextOptions<AccessControlDbConte
             entity.HasKey(value => value.Id);
             entity.HasAlternateKey(value => new { value.TenantId, value.UnitOrganizationId, value.Id });
             entity.Property(value => value.TenantId).HasMaxLength(128).IsRequired();
+            entity.Property(value => value.Code).HasMaxLength(128).IsRequired();
+            entity.HasIndex(value => new { value.TenantId, value.UnitOrganizationId, value.Code }).IsUnique();
             entity.Property(value => value.DisplayName).HasMaxLength(200).IsRequired();
         });
 

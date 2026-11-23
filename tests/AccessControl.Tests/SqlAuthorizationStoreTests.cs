@@ -30,7 +30,7 @@ public sealed class SqlAuthorizationStoreTests
         AuthorizationService service = new(store, NullLogger<AuthorizationService>.Instance);
         EntitlementCatalogService entitlements = new(new SqlEntitlementCatalog(db),
             NullLogger<EntitlementCatalogService>.Instance);
-        EntitlementInfo view = await entitlements.CreateAsync(new("tenant-a", Organization, "View"),
+        EntitlementInfo view = await entitlements.CreateAsync(new("tenant-a", Organization, "View", "customers.view"),
             CancellationToken.None);
         await service.UpsertPolicyAsync(new("tenant-a", "GET", "/customers/{id}", false,
             [view.Id], Organization), CancellationToken.None);

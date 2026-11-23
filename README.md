@@ -17,7 +17,7 @@ An active SuperAdmin can resolve any active UO in their application tenant witho
 
 ## Policies, entitlements, and administration
 
-The policy key is `(tenantId, unitOrganizationId, httpMethod, routeTemplate)`. An administrator creates an entitlement with `POST /v1/entitlements`, grants its ID to a User Management role ID with `PUT /v1/roles/entitlements`, and sets a protected route's required entitlement IDs with `PUT /v1/policies`. Required IDs use **OR** semantics. `GET /v1/policies` reads one exact key; `GET /v1/policies/search` lists active policies. `isPublic: true` requires an empty entitlement list. A global public policy uses the all-zero UO ID and applies only when no UO-specific policy takes precedence. Deleting a policy makes it inactive; upserting the same key reactivates it. Disabling an entitlement removes its effect after cache invalidation or expiry.
+The policy key is `(tenantId, unitOrganizationId, httpMethod, routeTemplate)`. An administrator creates an entitlement with a required, immutable `code` and display name using `POST /v1/entitlements`, grants its ID to a User Management role ID with `PUT /v1/roles/entitlements`, and sets a protected route's required entitlement IDs with `PUT /v1/policies`. Codes are unique within tenant and UO, including disabled records; decisions still use GUID IDs. Required IDs use **OR** semantics. `GET /v1/policies` reads one exact key; `GET /v1/policies/search` lists active policies. `isPublic: true` requires an empty entitlement list. A global public policy uses the all-zero UO ID and applies only when no UO-specific policy takes precedence. Deleting a policy makes it inactive; upserting the same key reactivates it. Disabling an entitlement removes its effect after cache invalidation or expiry.
 
 Administrator endpoints require the Access Control administrator key, a validated Entra administrator bearer token, and the relevant SuperAdmin or UO Admin duty from User Management. See the [API guide](docs/api-contract.md) and [OpenAPI 3 specification](src/AccessControl.Service/wwwroot/openapi/access-control.v1.json) for request bodies and all endpoints.
 
@@ -26,7 +26,7 @@ Administrator endpoints require the Access Control administrator key, a validate
 Install the .NET 10 SDK and Docker. From this repository root, start the SQL Server defined in [docker-compose.yml](docker-compose.yml) and then the service:
 
 ```powershell
-# The six Shared 0.13.0 NuGet files are included in .packages.
+# The six Shared 0.14.0 NuGet files are included in .packages.
 docker compose up -d sqlserver
 dotnet run --project src/AccessControl.Service --launch-profile https
 ```
@@ -41,7 +41,7 @@ The local Access Control decision key matches the [CustomerApi settings](samples
 
 ## NuGet packages and consuming APIs
 
-The service, tests, benchmarks, and CustomerApi sample use versioned `0.13.0` NuGet packages from Shared. This repository includes the six package files in `.packages`: `AccessControl.Client`, `AccessControl.Contracts`, `UserManagement.Client`, `UserManagement.Contracts`, `Common.Persistence`, and `AdminManagement.Security`. Their versions must match the project references. When Shared releases a new version, pack it, update the project references, and replace these package files. For example, after packing Shared in any location:
+The service, tests, benchmarks, and CustomerApi sample use versioned `0.14.0` NuGet packages from Shared. This repository includes the six package files in `.packages`: `AccessControl.Client`, `AccessControl.Contracts`, `UserManagement.Client`, `UserManagement.Contracts`, `Common.Persistence`, and `AdminManagement.Security`. Their versions must match the project references. When Shared releases a new version, pack it, update the project references, and replace these package files. For example, after packing Shared in any location:
 
 ```powershell
 Copy-Item 'C:\path\to\Shared\packages\*.nupkg' .packages\
@@ -50,7 +50,7 @@ dotnet restore AccessControl.sln
 
 `NuGet.config` maps these package IDs to `.packages`; no sibling checkout or package download is needed after cloning this repository with the package files committed. Once a private feed is chosen, replace that local source with the feed URL and supply its credentials through CI secrets; do not commit credentials.
 
-Install matching `AccessControl.Client` and `AccessControl.Contracts` versions (currently 0.13.0). A consuming API using the full flow also installs matching `UserManagement.Client` and `UserManagement.Contracts` packages. The host registers both clients and configures JWT authentication. The relevant ordering is:
+Install matching `AccessControl.Client` and `AccessControl.Contracts` versions (currently 0.14.0). A consuming API using the full flow also installs matching `UserManagement.Client` and `UserManagement.Contracts` packages. The host registers both clients and configures JWT authentication. The relevant ordering is:
 
 ```csharp
 builder.Services.AddUserManagement(builder.Configuration);

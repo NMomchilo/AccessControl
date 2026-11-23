@@ -12,8 +12,9 @@ public sealed class EntitlementCatalogService(IEntitlementCatalog catalog, ILogg
         if (request.UnitOrganizationId == Guid.Empty)
             throw new ArgumentException("Unit organization ID is required.", nameof(request));
         string displayName = NormalizeText(request.DisplayName, 200, nameof(request.DisplayName));
+        string code = NormalizeCode(request.Code);
         EntitlementInfo created = await catalog.CreateAsync(tenantId, request.UnitOrganizationId,
-            displayName, cancellationToken);
+            displayName, code, cancellationToken);
         logger.LogInformation("Created entitlement {EntitlementId} in tenant {TenantId}, organization {UnitOrganizationId}",
             created.Id, tenantId, request.UnitOrganizationId);
         return created;
@@ -76,6 +77,17 @@ public sealed class EntitlementCatalogService(IEntitlementCatalog catalog, ILogg
     }
 
     private static string NormalizeTenant(string value) => NormalizeText(value, 128, nameof(value)).ToLowerInvariant();
+
+    private static string NormalizeCode(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException("Entitlement code is required.", nameof(value));
+        string code = value.Trim().ToLowerInvariant();
+        if (code.Length > 128 || code[0] is < 'a' or > 'z' ||
+            code.Skip(1).Any(character => character is not (>= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '_' or '-')))
+            throw new ArgumentException("Entitlement code must start with a letter and contain only letters, digits, dots, hyphens, or underscores (maximum 128 characters).", nameof(value));
+        return code;
+    }
 
     private static string NormalizeText(string value, int maximumLength, string field)
     {

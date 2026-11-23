@@ -16,7 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AccessControl.Service\AccessControl.Service.csproj" />
     <ProjectReference Include="..\..\src\AccessControl.Infrastructure\AccessControl.Infrastructure.csproj" />
-    <PackageReference Include="AccessControl.Contracts" Version="0.13.0" />
+    <PackageReference Include="AccessControl.Contracts" Version="0.14.0" />
   </ItemGroup>
 
 </Project>

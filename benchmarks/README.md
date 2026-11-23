@@ -71,4 +71,4 @@ The [UO benchmark report](../docs/unit-organization-benchmark-2026-11-10.md) con
 
 ## User Management benchmark
 
-The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses the `0.13.0` client NuGets from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.
+The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses the `0.14.0` client NuGets from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.

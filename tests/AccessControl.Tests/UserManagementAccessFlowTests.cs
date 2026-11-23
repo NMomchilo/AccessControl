@@ -62,7 +62,7 @@ public sealed class UserManagementAccessFlowTests
         public Task<UserIdentityResponse> ResolveAsync(UserIdentityRequest request, CancellationToken cancellationToken) =>
             Task.FromResult(new UserIdentityResponse(Guid.NewGuid(), request.TenantId,
                 request.UnitOrganizationId, "Alpha", true,
-                [new UserRoleInfo(Reader, "Reader")], isSuperAdmin, isUnitAdmin));
+                [new UserRoleInfo(Reader, "Reader", "reader")], isSuperAdmin, isUnitAdmin));
     }
 
     private sealed class CapturingDecisionClient : IAccessControlDecisionClient

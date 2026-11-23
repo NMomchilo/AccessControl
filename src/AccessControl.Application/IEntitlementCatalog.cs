@@ -5,7 +5,7 @@ namespace AccessControl.Application;
 public interface IEntitlementCatalog
 {
     Task<EntitlementInfo> CreateAsync(string tenantId, Guid unitOrganizationId,
-        string displayName, CancellationToken cancellationToken);
+        string displayName, string code, CancellationToken cancellationToken);
     Task<bool> SetActiveAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,
         bool isActive, CancellationToken cancellationToken);
     Task<EntitlementInfo?> UpdateDisplayNameAsync(string tenantId, Guid unitOrganizationId, Guid entitlementId,

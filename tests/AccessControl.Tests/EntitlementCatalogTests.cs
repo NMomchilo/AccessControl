@@ -17,6 +17,32 @@ public sealed class EntitlementCatalogTests
     private static readonly Guid Role = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
     [Fact]
+    public async Task EntitlementCodeIsUniqueWithinOrganizationIncludingInactiveEntitlementsAsync()
+    {
+        await using SqliteConnection connection = new("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>()
+            .UseSqlite(connection).Options, TestActorProvider.Instance);
+        await db.Database.EnsureCreatedAsync();
+        EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
+        CreateEntitlementRequest firstRequest = System.Text.Json.JsonSerializer.Deserialize<CreateEntitlementRequest>(
+            $$"""{"tenantId":"tenant-a","unitOrganizationId":"{{OrganizationA}}","code":"Customers.View","displayName":"View customers"}""",
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        EntitlementInfo first = await service.CreateAsync(firstRequest, CancellationToken.None);
+        Assert.Equal("customers.view", first.Code);
+        await service.SetActiveAsync("tenant-a", OrganizationA, first.Id, false, CancellationToken.None);
+        CreateEntitlementRequest duplicate = System.Text.Json.JsonSerializer.Deserialize<CreateEntitlementRequest>(
+            $$"""{"tenantId":"tenant-a","unitOrganizationId":"{{OrganizationA}}","code":"customers.view","displayName":"Another name"}""",
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+
+        await Assert.ThrowsAsync<EntitlementCodeConflictException>(() => service.CreateAsync(duplicate, CancellationToken.None));
+        Assert.Single(await db.Entitlements.ToListAsync());
+        EntitlementInfo otherOrganization = await service.CreateAsync(
+            new("tenant-a", OrganizationB, "View customers", "customers.view"), CancellationToken.None);
+        Assert.Equal("customers.view", otherOrganization.Code);
+    }
+
+    [Fact]
     public async Task GetEntitlement_UsesTenantAndOrganizationScopeAsync()
     {
         await using SqliteConnection connection = new("Data Source=:memory:");
@@ -24,7 +50,7 @@ public sealed class EntitlementCatalogTests
         await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
-        EntitlementInfo created = await service.CreateAsync(new("tenant-a", OrganizationA, "View"), CancellationToken.None);
+        EntitlementInfo created = await service.CreateAsync(new("tenant-a", OrganizationA, "View", "customers.view"), CancellationToken.None);
 
         Assert.Equal(created, await service.GetAsync("tenant-a", OrganizationA, created.Id, CancellationToken.None));
         Assert.Null(await service.GetAsync("tenant-a", OrganizationB, created.Id, CancellationToken.None));
@@ -39,7 +65,7 @@ public sealed class EntitlementCatalogTests
         await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
-        EntitlementInfo created = await service.CreateAsync(new("tenant-a", OrganizationA, "Old name"), CancellationToken.None);
+        EntitlementInfo created = await service.CreateAsync(new("tenant-a", OrganizationA, "Old name", "customers.view"), CancellationToken.None);
         long revision = (await db.AuthorizationRevisions.SingleAsync()).Version;
 
         EntitlementInfo? updated = await service.UpdateDisplayNameAsync("TENANT-A", OrganizationA,
@@ -47,6 +73,7 @@ public sealed class EntitlementCatalogTests
 
         Assert.NotNull(updated);
         Assert.Equal(created.Id, updated.Id);
+        Assert.Equal(created.Code, updated.Code);
         Assert.Equal("View customers", updated.DisplayName);
         Assert.Equal(created.IsActive, updated.IsActive);
         Assert.Equal(revision, (await db.AuthorizationRevisions.SingleAsync()).Version);
@@ -72,7 +99,7 @@ public sealed class EntitlementCatalogTests
         await db.Database.EnsureCreatedAsync();
         EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
 
-        EntitlementInfo created = await service.CreateAsync(new CreateEntitlementRequest("tenant-a", OrganizationA, "Export customers"), CancellationToken.None);
+        EntitlementInfo created = await service.CreateAsync(new CreateEntitlementRequest("tenant-a", OrganizationA, "Export customers", "customers.export"), CancellationToken.None);
         Assert.Equal("Export customers", created.DisplayName);
         Assert.True(created.IsActive);
         Assert.Contains((await service.ListAsync("tenant-a", OrganizationA, 1, 100, CancellationToken.None)).Items,
@@ -90,11 +117,11 @@ public sealed class EntitlementCatalogTests
         await db.Database.EnsureCreatedAsync();
         using AuthorizationCache cache = new(Options.Create(new AccessControlCacheOptions()), NullLogger<AuthorizationCache>.Instance);
         EntitlementCatalogService catalog = new(new SqlEntitlementCatalog(db, cache), NullLogger<EntitlementCatalogService>.Instance);
-        EntitlementInfo view = await catalog.CreateAsync(new("tenant-a", OrganizationA, "View"), CancellationToken.None);
-        EntitlementInfo other = await catalog.CreateAsync(new("tenant-a", OrganizationB, "View"), CancellationToken.None);
+        EntitlementInfo view = await catalog.CreateAsync(new("tenant-a", OrganizationA, "View", "customers.view"), CancellationToken.None);
+        EntitlementInfo other = await catalog.CreateAsync(new("tenant-a", OrganizationB, "View", "customers.view"), CancellationToken.None);
         Assert.NotEqual(view.Id, other.Id);
         EntitlementInfo duplicate = await catalog.CreateAsync(
-            new("tenant-a", OrganizationA, "View"), CancellationToken.None);
+            new("tenant-a", OrganizationA, "View", "customers.view-copy"), CancellationToken.None);
         Assert.NotEqual(view.Id, duplicate.Id);
         SqlAuthorizationStore sql = new(db, NullLogger<SqlAuthorizationStore>.Instance);
         CachingAuthorizationStore cached = new(sql, cache, NullLogger<CachingAuthorizationStore>.Instance);
@@ -136,11 +163,11 @@ public sealed class EntitlementCatalogTests
         await using AccessControlDbContext db = new(new DbContextOptionsBuilder<AccessControlDbContext>().UseSqlite(connection).Options, TestActorProvider.Instance);
         await db.Database.EnsureCreatedAsync();
         EntitlementCatalogService service = new(new SqlEntitlementCatalog(db), NullLogger<EntitlementCatalogService>.Instance);
-        await service.CreateAsync(new("tenant-a", OrganizationA, "View"), CancellationToken.None);
-        await service.CreateAsync(new("tenant-a", OrganizationA, "Edit"), CancellationToken.None);
-        await service.CreateAsync(new("tenant-a", OrganizationA, "Delete"), CancellationToken.None);
-        await service.CreateAsync(new("tenant-a", OrganizationB, "Billing"), CancellationToken.None);
-        await service.CreateAsync(new("tenant-b", OrganizationA, "Secret"), CancellationToken.None);
+        await service.CreateAsync(new("tenant-a", OrganizationA, "View", "customers.view"), CancellationToken.None);
+        await service.CreateAsync(new("tenant-a", OrganizationA, "Edit", "customers.edit"), CancellationToken.None);
+        await service.CreateAsync(new("tenant-a", OrganizationA, "Delete", "customers.delete"), CancellationToken.None);
+        await service.CreateAsync(new("tenant-a", OrganizationB, "Billing", "billing.view"), CancellationToken.None);
+        await service.CreateAsync(new("tenant-b", OrganizationA, "Secret", "secret.view"), CancellationToken.None);
 
         EntitlementPageResponse all = await service.ListAsync("tenant-a", null, 1, 100, CancellationToken.None);
         EntitlementPageResponse oneOrganization = await service.ListAsync("tenant-a", OrganizationA, 1, 100,
