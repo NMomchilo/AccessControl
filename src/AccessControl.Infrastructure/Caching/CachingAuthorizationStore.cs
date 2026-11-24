@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AccessControl.Infrastructure.Caching;
 
-public sealed class CachingAuthorizationStore(IAuthorizationStore source, AuthorizationCache cache,
+public sealed class CachingAuthorizationStore(IAuthorizationStore source, IAuthorizationCache cache,
     ILogger<CachingAuthorizationStore> logger) : IAuthorizationStore
 {
     public Task<EndpointPolicy?> GetPolicyAsync(string tenantId, Guid unitOrganizationId, string httpMethod, string routeTemplate,

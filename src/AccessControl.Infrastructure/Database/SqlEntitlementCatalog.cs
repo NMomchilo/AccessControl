@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AccessControl.Infrastructure.Database;
 
-public sealed class SqlEntitlementCatalog(AccessControlDbContext db, AuthorizationCache? cache = null,
+public sealed class SqlEntitlementCatalog(AccessControlDbContext db, IAuthorizationCache? cache = null,
     ILogger<SqlEntitlementCatalog>? logger = null) : IEntitlementCatalog
 {
     private readonly ILogger<SqlEntitlementCatalog> _logger = logger ?? NullLogger<SqlEntitlementCatalog>.Instance;

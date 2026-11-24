@@ -22,6 +22,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
+using Shared.Infrastructure;
+using System.Collections.Concurrent;
+using StackExchange.Redis;
 
 namespace AccessControl.Benchmarks;
 
@@ -71,7 +74,8 @@ internal static class Program
                 {
                     using HttpClient client = sqlite.CreateClient();
                     await SeedAsync(sqlite.Services);
-                    await MeasureAllAsync("SQLite store", client, DecisionKey, BenchmarkBearer, settings, cases, results);
+                    await MeasureAllAsync(Environment.GetEnvironmentVariable("AccessControlBenchmark__RedisConnectionString") is null
+                        ? "SQLite store with test cache" : "SQLite store with Redis", client, DecisionKey, BenchmarkBearer, settings, cases, results);
                 }
             }
 
@@ -276,6 +280,16 @@ internal static class Program
             builder.ConfigureLogging(logging => logging.ClearProviders());
             builder.ConfigureTestServices(services =>
             {
+                services.RemoveAll<IRedisCacheService>();
+                string? redisConnection = Environment.GetEnvironmentVariable("AccessControlBenchmark__RedisConnectionString");
+                if (string.IsNullOrWhiteSpace(redisConnection))
+                    services.AddSingleton<IRedisCacheService, BenchmarkRedisCache>();
+                else
+                {
+                    services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnection));
+                    services.AddSingleton<IRedisCacheService>(provider =>
+                        new RedisCacheService(provider.GetRequiredService<IConnectionMultiplexer>(), 0, "benchmark-ac"));
+                }
                 services.AddSingleton<ICurrentActorProvider>(new BenchmarkActorProvider());
                 services.AddAuthentication(options => options.DefaultAuthenticateScheme = "BenchmarkEntra")
                     .AddScheme<AuthenticationSchemeOptions, BenchmarkAuthenticationHandler>("BenchmarkEntra", _ => { });
@@ -298,6 +312,29 @@ internal static class Program
                     services.AddDbContext<AccessControlDbContext>(options => options.UseSqlite(connectionString));
                 }
             });
+        }
+    }
+
+    private sealed class BenchmarkRedisCache : IRedisCacheService
+    {
+        private readonly ConcurrentDictionary<string, (string Value, DateTimeOffset Expires)> _entries = new();
+        public Task<string?> GetValueAsync(string key, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(_entries.TryGetValue(key, out var entry) && entry.Expires > DateTimeOffset.UtcNow
+                ? entry.Value : null);
+        }
+        public Task SetValueAsync(string key, string value, TimeSpan lifetime, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _entries[key] = (value, DateTimeOffset.UtcNow.Add(lifetime));
+            return Task.CompletedTask;
+        }
+        public Task RemoveAsync(string key, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _entries.TryRemove(key, out _);
+            return Task.CompletedTask;
         }
     }
 

@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AccessControl.Infrastructure.Database;
 
-public sealed class CatalogRegistrationStore(AccessControlDbContext db, AuthorizationCache cache,
+public sealed class CatalogRegistrationStore(AccessControlDbContext db, IAuthorizationCache cache,
     ILogger<CatalogRegistrationStore> logger) : ICatalogRegistrationService
 {
     public async Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request, string clientId,

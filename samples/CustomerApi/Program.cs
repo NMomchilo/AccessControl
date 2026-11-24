@@ -1,8 +1,10 @@
 using AccessControl.Client;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using UserManagement.Client;
+using Shared.Infrastructure;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddSharedKeyVault();
 AccessControlCatalogRegistrationOptions catalogRegistration = builder.Configuration
     .GetRequiredSection("AccessControl:Registration")
     .Get<AccessControlCatalogRegistrationOptions>()

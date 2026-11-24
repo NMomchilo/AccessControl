@@ -1,5 +1,7 @@
 # Decision API load benchmark
 
+The [2026-11-24 local Redis run](../docs/redis-local-benchmark-2026-11-24.md) measures the SQLite test server with real Redis operations. Set `AccessControlBenchmark__RedisConnectionString` to add Redis to local mode; without it, local mode uses an in-process test cache. Remote mode uses the running service's configured Redis.
+
 Fresh Rancher Desktop SQL Server decision, duty-mix, cache-sensitivity, and full middleware flow measurements are in [the 2026-11-20 report](../docs/sqlserver-rancher-benchmarks-2026-11-20.md), with links to every raw run. The [support-package move flow check](../docs/sqlserver-support-package-flow-2026-11-20.md) reran the live two-service path and administrator writes. [The 2026-11-18 report](../docs/sqlserver-live-benchmarks-2026-11-18.md) is historical. `LocalIdentityProvider` supplies short-lived, locally signed JWTs over loopback HTTPS for development-only tests.
 
 Run from the repository root with a Release build:
@@ -13,7 +15,7 @@ The harness sends `POST /v1/decisions` with a protected endpoint and a user who 
 Local mode runs the service in an ASP.NET Core in-process test server with two stores:
 
 - **In-memory store:** deterministic policy and grant responses; measures HTTP and decision processing without database work.
-- **SQLite store:** the real `SqlAuthorizationStore`, cache, and EF model against a shared local SQLite database. The request supplies the benchmark role ID. The first request for a policy/grant key loads it from SQLite; repeated requests use the bounded cache until invalidation or expiration.
+- **SQLite store:** the real `SqlAuthorizationStore`, an in-process Redis test double, and EF model against a shared local SQLite database. The request supplies the benchmark role ID. The first request for a policy/grant key loads it from SQLite; repeated requests use the test cache until invalidation or expiration. This mode does not measure Redis network latency.
 
 The local test server skips the real network and TLS. It uses a test-only bearer handler for the fixed benchmark oid. SQLite is not SQL Server and its concurrency behavior differs. Logging providers are disabled so console output does not dominate the measurement. The default workload repeats **one** tenant, UO, route, and user combination, making the cache results a high-hit-rate case. These numbers are useful for comparing code changes on the same machine, not for predicting production capacity.
 
@@ -71,4 +73,4 @@ The [UO benchmark report](../docs/unit-organization-benchmark-2026-11-10.md) con
 
 ## User Management benchmark
 
-The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses the `0.14.0` client NuGets from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.
+The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses the `0.17.0` client NuGets from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Shared.Infrastructure;
 
 namespace AccessControl.Infrastructure;
 
@@ -17,19 +18,20 @@ public static class DependencyInjection
         services.AddDbContext<AccessControlDbContext>(options => options.UseSqlServer(connectionString));
         services.AddOptions<AccessControlCacheOptions>()
             .Bind(configuration.GetSection(AccessControlCacheOptions.SectionName))
-            .Validate(options => options.MaximumEntries > 0 &&
-                options.EntryLifetime > TimeSpan.Zero && options.EntryLifetime <= TimeSpan.FromSeconds(5) &&
+            .Validate(options => options.EntryLifetime > TimeSpan.Zero && options.EntryLifetime <= TimeSpan.FromSeconds(5) &&
                 options.RevisionPollInterval > TimeSpan.Zero && options.RevisionPollInterval <= options.EntryLifetime,
-                "AccessControlCache requires a positive entry limit, an entry lifetime up to five seconds, and a poll interval no longer than that lifetime.")
+                "AccessControlCache requires an entry lifetime up to five seconds and a poll interval no longer than that lifetime.")
             .ValidateOnStart();
-        services.AddSingleton<AuthorizationCache>();
+        services.AddSharedRedis(configuration);
+        services.AddSingleton<RedisAuthorizationCache>();
+        services.AddSingleton<IAuthorizationCache>(provider => provider.GetRequiredService<RedisAuthorizationCache>());
         services.AddScoped<SqlAuthorizationStore>();
         services.AddScoped<ICatalogRegistrationService, CatalogRegistrationStore>();
         services.AddScoped<IEntitlementCatalog, SqlEntitlementCatalog>();
         services.AddScoped<IPolicyCatalog, SqlPolicyCatalog>();
         services.AddScoped<IAuthorizationStore>(provider => new CachingAuthorizationStore(
             provider.GetRequiredService<SqlAuthorizationStore>(),
-            provider.GetRequiredService<AuthorizationCache>(),
+            provider.GetRequiredService<IAuthorizationCache>(),
             provider.GetRequiredService<ILogger<CachingAuthorizationStore>>()));
         services.AddHostedService<AuthorizationCacheInvalidationService>();
         return services;

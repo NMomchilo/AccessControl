@@ -2,7 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AccessControl.Domain\AccessControl.Domain.csproj" />
-    <PackageReference Include="AccessControl.Contracts" Version="0.14.0" />
+    <PackageReference Include="AccessControl.Contracts" Version="0.17.0" />
   </ItemGroup>
 
   <ItemGroup>

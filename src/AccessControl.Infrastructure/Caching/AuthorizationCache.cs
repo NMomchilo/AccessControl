@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 
 namespace AccessControl.Infrastructure.Caching;
 
-public sealed class AuthorizationCache : IDisposable
+public sealed class AuthorizationCache : IAuthorizationCache, IDisposable
 {
     private readonly MemoryCache _memory;
     private readonly SemaphoreSlim[] _locks = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();

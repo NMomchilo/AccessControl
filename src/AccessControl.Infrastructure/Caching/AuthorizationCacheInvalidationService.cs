@@ -6,7 +6,7 @@ using Microsoft.Extensions.Options;
 
 namespace AccessControl.Infrastructure.Caching;
 
-public sealed class AuthorizationCacheInvalidationService(IServiceScopeFactory scopeFactory, AuthorizationCache cache,
+public sealed class AuthorizationCacheInvalidationService(IServiceScopeFactory scopeFactory, IAuthorizationCache cache,
     IOptions<AccessControlCacheOptions> options, ILogger<AuthorizationCacheInvalidationService> logger) : BackgroundService
 {
     private bool _pollingFailed;

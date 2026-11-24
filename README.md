@@ -5,7 +5,7 @@ This .NET 10 repository contains the Access Control API. The `AccessControl.Clie
 ## Request flow
 
 1. The consuming API authenticates the Entra JWT and a trusted gateway assertion identifying the UO. Route matching supplies the HTTP method and **route template**, such as `/customers/{id}`.
-2. `UserManagement.Client` calls `POST /v1/users/resolve` for an authenticated `oid`, tenant, and UO, or reads its bounded cache. It adds the returned role IDs and SuperAdmin/current-UO Admin duties to a dedicated identity in `HttpContext.User`. It does not change the JWT.
+2. `UserManagement.Client` calls `POST /v1/users/resolve` for an authenticated `oid`, tenant, and UO, or reads its Redis cache. It adds the returned role IDs and SuperAdmin/current-UO Admin duties to a dedicated identity in `HttpContext.User`. It does not change the JWT.
 3. `AccessControl.Client` sends the route, tenant, UO, subject `oid`, role IDs, and duty flags to `POST /v1/decisions`. It forwards the original bearer token as well as its decision client key.
 4. Access Control checks the client key and requires the bearer `oid` to match a non-null `subjectId`. It finds the endpoint policy. A public policy permits. A protected policy permits an authenticated caller with an asserted SuperAdmin or current-UO Admin duty; otherwise a forwarded role ID must have a required, active entitlement. A missing policy denies. Only Permit reaches the business controller.
 
@@ -26,10 +26,15 @@ Administrator endpoints require the Access Control administrator key, a validate
 Install the .NET 10 SDK and Docker. From this repository root, start the SQL Server defined in [docker-compose.yml](docker-compose.yml) and then the service:
 
 ```powershell
-# The six Shared 0.14.0 NuGet files are included in .packages.
+# The seven Shared 0.17.0 NuGet files are included in .packages.
 docker compose up -d sqlserver
+docker compose up -d redis
 dotnet run --project src/AccessControl.Service --launch-profile https
 ```
+
+Local Redis listens on `localhost:6379`. Access Control uses `ConnectionStrings:LocalRedisServiceConnectionString` in Development; the CustomerApi sample uses the same endpoint through `UserManagement.Client`. Every consuming API that installs that client now needs its own Redis connection setting. For deployment, configure `ConnectionStrings:RedisServiceConnectionString`, a deployment-specific `Redis:KeyPrefix`, and optional `Redis:ApplicationDatabaseIndex`; use authenticated TLS and a bounded Redis deployment. Cache entries expire after five seconds. Redis failures make the service load from SQL Server and consuming APIs load from User Management; a source failure still denies continuation.
+
+`KeyVault:Url` enables the shared Key Vault configuration provider in both services and the CustomerApi sample. Leave it empty for local runs. With an HTTPS vault URL, `DefaultAzureCredential` uses the deployed identity; optional `KeyVault:TenantId`, `ClientId`, and `ClientSecret` must come from a secure source. A vault secret named `ConnectionStrings--AccessControl` supplies the SQL connection string; `ConnectionStrings--RedisServiceConnectionString` supplies Redis, and `ApiKeys--AdminKey` supplies the administrator key. The provider loads configuration at startup, so restart the service after rotating a secret.
 
 Open `https://localhost:7219/swagger`. Development startup can apply the fresh first-version migration. The example configuration is in `src/AccessControl.Service/appsettings.Development.json`. Replace example keys and connection strings outside Development. `GET /health` is a liveness check; `GET /ready` checks database connectivity and returns `503` when it cannot connect. Neither GET probe needs an API key. Administrator API calls need the administrator key and validated Entra token; decision calls need a client key, and protected decisions need a bearer token whose `oid` matches `subjectId`.
 
@@ -41,7 +46,7 @@ The local Access Control decision key matches the [CustomerApi settings](samples
 
 ## NuGet packages and consuming APIs
 
-The service, tests, benchmarks, and CustomerApi sample use versioned `0.14.0` NuGet packages from Shared. This repository includes the six package files in `.packages`: `AccessControl.Client`, `AccessControl.Contracts`, `UserManagement.Client`, `UserManagement.Contracts`, `Common.Persistence`, and `AdminManagement.Security`. Their versions must match the project references. When Shared releases a new version, pack it, update the project references, and replace these package files. For example, after packing Shared in any location:
+The service, tests, benchmarks, and CustomerApi sample use versioned `0.17.0` NuGet packages from Shared. This repository includes the seven package files in `.packages`: `AccessControl.Client`, `AccessControl.Contracts`, `UserManagement.Client`, `UserManagement.Contracts`, `Common.Persistence`, and `AdminManagement.Security`, and `Shared.Infrastructure`. Their versions must match the project references. When Shared releases a new version, pack it, update the project references, and replace these package files. For example, after packing Shared in any location:
 
 ```powershell
 Copy-Item 'C:\path\to\Shared\packages\*.nupkg' .packages\
@@ -50,7 +55,7 @@ dotnet restore AccessControl.sln
 
 `NuGet.config` maps these package IDs to `.packages`; no sibling checkout or package download is needed after cloning this repository with the package files committed. Once a private feed is chosen, replace that local source with the feed URL and supply its credentials through CI secrets; do not commit credentials.
 
-Install matching `AccessControl.Client` and `AccessControl.Contracts` versions (currently 0.14.0). A consuming API using the full flow also installs matching `UserManagement.Client` and `UserManagement.Contracts` packages. The host registers both clients and configures JWT authentication. The relevant ordering is:
+Install matching `AccessControl.Client` and `AccessControl.Contracts` versions (currently 0.17.0). A consuming API using the full flow also installs matching `UserManagement.Client` and `UserManagement.Contracts` packages. The host registers both clients and configures JWT authentication. The relevant ordering is:
 
 ```csharp
 builder.Services.AddUserManagement(builder.Configuration);

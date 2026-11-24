@@ -5,8 +5,10 @@ using AccessControl.Infrastructure.Database;
 using AccessControl.Service.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Shared.Infrastructure;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddSharedKeyVault();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddEntraAdminAuthentication(builder.Configuration);
