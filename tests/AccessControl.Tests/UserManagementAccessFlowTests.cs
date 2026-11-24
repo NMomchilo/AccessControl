@@ -41,9 +41,8 @@ public sealed class UserManagementAccessFlowTests
             [new Claim("oid", "9155ff4d-2708-4770-b87e-e238645ec5df"),
                 new Claim("scp", "user_impersonation"), new Claim(ClaimTypes.Role, "untrusted-other-role"),
                 new Claim(UserManagementClaims.RoleId, Guid.NewGuid().ToString("D"))], "jwt"));
-        context.User.AddIdentity(new ClaimsIdentity(
-            [new Claim("unit_organization_id", Organization.ToString("D")),
-                new Claim("unit_organization_name", "Customer Operations")], "Gateway"));
+        context.Request.Headers["X-Unit-Organization-Id"] = Organization.ToString("D");
+        context.Request.Headers["X-Unit-Organization-Name"] = "Customer Operations";
         context.SetEndpoint(new RouteEndpointBuilder(_ => Task.CompletedTask,
             RoutePatternFactory.Parse("/customers/{id}"), 0).Build());
 

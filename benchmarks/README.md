@@ -69,8 +69,8 @@ dotnet run --project benchmarks/AccessFlow.Benchmarks -c Release -- `
   --output artifacts/benchmarks/access-flow.json
 ```
 
-The [UO benchmark report](../docs/unit-organization-benchmark-2026-11-10.md) contains current local smoke measurements and raw JSON. The [tenant/role-ID benchmark report](../docs/tenant-role-ids-benchmark-2026-11-10.md) contains earlier measurements and raw JSON outputs; it predates UO scoping. The [earlier end-to-end report](../docs/end-to-end-access-flow-benchmark-2026-11-09.md) used string roles. The benchmark JWT is signed and verified locally; it is not an Entra token. The benchmark-only gateway identity is not a production gateway implementation.
+The [UO benchmark report](../docs/unit-organization-benchmark-2026-11-10.md) contains current local smoke measurements and raw JSON. The [tenant/role-ID benchmark report](../docs/tenant-role-ids-benchmark-2026-11-10.md) contains earlier measurements and raw JSON outputs; it predates UO scoping. The [earlier end-to-end report](../docs/end-to-end-access-flow-benchmark-2026-11-09.md) used string roles. The benchmark JWT is signed and verified locally; it is not an Entra token. The benchmark supplies organization headers as ingress would; its local HTTP listener is not a production ingress implementation.
 
 ## User Management benchmark
 
-The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses the `0.17.0` client NuGets from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.
+The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses AccessControl.Client 0.17.0 and UserManagement.Client 0.18.0 from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.

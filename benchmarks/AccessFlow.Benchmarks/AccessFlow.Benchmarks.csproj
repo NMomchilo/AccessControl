@@ -8,6 +8,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.5" />
     <PackageReference Include="AccessControl.Client" Version="0.17.0" />
-    <PackageReference Include="UserManagement.Client" Version="0.17.0" />
+    <PackageReference Include="UserManagement.Client" Version="0.18.0" />
   </ItemGroup>
 </Project>

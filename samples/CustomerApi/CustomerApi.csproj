@@ -10,6 +10,6 @@
     <PackageReference Include="AccessControl.Client" Version="0.17.0" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="UserManagement.Client" Version="0.17.0" />
+    <PackageReference Include="UserManagement.Client" Version="0.18.0" />
   </ItemGroup>
 </Project>

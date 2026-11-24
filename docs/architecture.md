@@ -2,7 +2,7 @@
 
 ## User Management before authorization
 
-`UserManagement.Service` in the separate User Management repository owns a SQL Server database with tenant-scoped users keyed by `(TenantId, oid)`, unit organizations (UOs), UO-scoped roles with GUID IDs, user-to-role assignments, and administrative duties. The consuming host validates Entra JWTs and gateway assertions first. Administrators create UOs, users, memberships, and roles explicitly; request-time resolution only reads existing data. `UserManagement.Client` adds UO, role-ID, SuperAdmin, and current-UO Admin claims to `HttpContext.User` for an active user. `AccessControl.Client` reads those claims from the dedicated User Management identity. User Management uses per-client and administrator credentials, a five-second Redis client cache keyed by tenant, UO, and oid, and a database revision polled after administrative changes. API and client details are in the User Management repository's `docs/user-management-api.md`.
+`UserManagement.Service` in the separate User Management repository owns a SQL Server database with tenant-scoped users keyed by `(TenantId, oid)`, unit organizations (UOs), UO-scoped roles with GUID IDs, user-to-role assignments, and administrative duties. The consuming host validates Entra JWTs and receives organization headers from trusted ingress. Administrators create UOs, users, memberships, and roles explicitly; request-time resolution only reads existing data. `UserManagement.Client` adds UO, role-ID, SuperAdmin, and current-UO Admin claims to `HttpContext.User` for an active user. `AccessControl.Client` reads those claims from the dedicated User Management identity. User Management uses per-client and administrator credentials, a five-second Redis client cache keyed by tenant, UO, and oid, and a database revision polled after administrative changes. API and client details are in the User Management repository's `docs/user-management-api.md`.
 
 A SuperAdmin may create a tenant user without a UO or role IDs. The user is visible in the tenant-wide user list. Before receiving SuperAdmin duty or an active UO membership, that user cannot resolve a UO for protected access. An active SuperAdmin can resolve any active UO in the same application tenant without membership or business roles. An ordinary user needs an active membership and a role with an entitlement required by the policy.
 
@@ -12,8 +12,8 @@ A SuperAdmin may create a tenant user without a UO or role IDs. The user is visi
 flowchart LR
     Caller[Caller] --> Route[ASP.NET Core matches route and HTTP method]
     Route --> Auth[Consuming service validates Entra JWT]
-    Auth --> Gateway[Validate trusted gateway UO assertion]
-    Gateway --> UserClient[UserManagement.Client middleware and cache]
+    Auth --> IngressHeaders[Read UO ID and name from trusted ingress headers]
+    IngressHeaders --> UserClient[UserManagement.Client middleware and cache]
     UserClient -->|tenant, UO ID/name, oid and profile on cache miss| UserApi[UserManagement.Service]
     UserApi --> Users[(Users, UnitOrganizations, Roles, and UserRoles)]
     Users --> UserApi
@@ -31,7 +31,7 @@ flowchart LR
     NuGet -->|401, 403, or 503| Stop[Controller does not run]
 ```
 
-The packages sit after host authentication, gateway validation, and route matching. Access Control reads the **route template** (`/customers/{id}`), not a concrete URL (`/customers/123`). There are no authorization attributes on controllers. The host owns token and gateway assertion validation. The consuming API forwards subject, UO ID, role IDs, and duties from User Management together with tenant, method, and route template. Ordinary decisions do not call User Management; Access Control calls User Management to check current administrator duties for management requests. The decision service checks the client key and matching Entra bearer `oid` but trusts the consuming API's role IDs and duty flags. A holder of a valid decision key can assert `isSuperAdmin: true` or `isUnitAdmin: true`; these duties are not independently verified on a decision call.
+The packages sit after host authentication, trusted ingress headers, and route matching. Access Control reads the **route template** (`/customers/{id}`), not a concrete URL (`/customers/123`). There are no authorization attributes on controllers. The host owns token validation; ingress owns organization header injection and prevents direct bypass. The consuming API forwards subject, UO ID, role IDs, and duties from User Management together with tenant, method, and route template. Ordinary decisions do not call User Management; Access Control calls User Management to check current administrator duties for management requests. The decision service checks the client key and matching Entra bearer `oid` but trusts the consuming API's role IDs and duty flags. A holder of a valid decision key can assert `isSuperAdmin: true` or `isUnitAdmin: true`; these duties are not independently verified on a decision call.
 
 Role disabling is enforced when User Management resolves the user: it stops returning that role ID. Access Control does not independently fetch role status, so a consuming API with a still-cached resolution can forward the old ID until its cache expires or observes the revision. Only trusted consuming APIs may call the decision endpoint.
 

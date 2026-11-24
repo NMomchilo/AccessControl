@@ -64,17 +64,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero
         };
-        // Benchmark-only stand-in for a gateway that has already authenticated its organization assertion.
-        options.Events = new JwtBearerEvents
-        {
-            OnTokenValidated = context =>
-            {
-                context.Principal?.AddIdentity(new ClaimsIdentity(
-                    [new Claim("unit_organization_id", "33333333-3333-3333-3333-333333333333"),
-                     new Claim("unit_organization_name", "Benchmark Organization")], "Gateway"));
-                return Task.CompletedTask;
-            }
-        };
     });
 builder.Services.AddAuthorization();
 builder.Services.AddControllers();
@@ -154,8 +143,8 @@ try
     FlowBenchmarkReport report = new(DateTimeOffset.UtcNow, RuntimeInformation.FrameworkDescription,
         RuntimeInformation.OSDescription, Environment.ProcessorCount,
         localAuthority is null
-            ? "In-process RS256 JWT and benchmark Gateway identity, validated on every request"
-            : "Local HTTPS test authority RS256 JWT and benchmark Gateway identity, validated on every request",
+            ? "In-process RS256 JWT and benchmark ingress organization headers on every request"
+            : "Local HTTPS test authority RS256 JWT and benchmark ingress organization headers on every request",
         settings, coldValidation, results);
     string outputPath = Path.GetFullPath(settings.Output, outputDirectory);
     Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
@@ -233,6 +222,8 @@ static async Task SendAsync(HttpClient client, string token, string route, int e
 {
     using HttpRequestMessage request = new(HttpMethod.Get, route);
     request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+    request.Headers.Add("X-Unit-Organization-Id", "33333333-3333-3333-3333-333333333333");
+    request.Headers.Add("X-Unit-Organization-Name", "Benchmark Organization");
     using HttpResponseMessage response = await client.SendAsync(request);
     if ((int)response.StatusCode != expectedStatus)
     {
