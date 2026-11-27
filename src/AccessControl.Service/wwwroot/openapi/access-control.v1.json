@@ -3,7 +3,7 @@
   "info": {
     "title": "Access Control Service API",
     "version": "6.0.0",
-    "description": "Tenant and unit-organization scoped endpoint decisions and administrator management. Administrator requests require an API key, signed actor bearer token, and current User Management scope. Database writes require a validated actor ID; a missing actor causes the write to fail."
+    "description": "Tenant and unit-organization scoped endpoint decisions and administrator management. Administrator requests require a validated Entra bearer token and current User Management scope. Non-anonymous decisions require a matching Entra bearer token. Startup catalog registration is keyless and must be restricted to trusted service network paths."
   },
   "servers": [
     {
@@ -38,7 +38,6 @@
         "summary": "Check whether the service process responds",
         "description": "This is a liveness response; it does not check database readiness.",
         "operationId": "getHealth",
-        "security": [],
         "responses": {
           "200": {
             "description": "Service process is running",
@@ -70,7 +69,6 @@
         "summary": "Check database readiness",
         "description": "Returns 200 when the service can connect to its database and 503 otherwise. This endpoint does not check pending migrations.",
         "operationId": "getReady",
-        "security": [],
         "responses": {
           "200": {
             "description": "Database connection is available",
@@ -103,13 +101,8 @@
           "Decisions"
         ],
         "summary": "Register a consuming API discovered endpoints",
-        "description": "Uses the existing decision client key when CanRegisterCatalog is enabled. The consuming API supplies tenant and unit organization; a registration-enabled key may register any of them. The configured ClientId identifies the write actor. Creates protected policies with no entitlements. An administrator may later edit a registered policy, including setting isPublic to true through PUT /v1/policies. Subsequent registration never overwrites that edit. Call after User Management organization registration.",
+        "description": "The consuming API supplies tenant, unit organization, and discovered endpoints. Missing policies start protected with zero entitlements. Registration is keyless; restrict this route to trusted service network paths. New rows use an unattributed-registration write actor.",
         "operationId": "registerEndpointCatalog",
-        "security": [
-          {
-            "DecisionApiKey": []
-          }
-        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -163,9 +156,6 @@
           "400": {
             "description": "Invalid catalog"
           },
-          "401": {
-            "description": "Invalid client key"
-          },
           "403": {
             "description": "Registration is not enabled for this client"
           },
@@ -181,14 +171,11 @@
           "Decisions"
         ],
         "summary": "Evaluate one endpoint request",
-        "description": "Find an active endpoint policy first; no policy denies and public policies permit. For a protected policy, an authenticated caller with isSuperAdmin or isUnitAdmin is permitted before role entitlements are evaluated. SuperAdmin applies to every active UO in the user's application tenant; unit Admin applies only to the selected UO. The decision client key is trusted to assert role IDs and duty flags; Access Control does not independently verify those flags with User Management. Non-null subjectId requires a matching validated Entra bearer token. A valid key may request any tenant and unit organization.",
+        "description": "Find an active endpoint policy first; no policy denies and public policies permit. For a protected policy, an authenticated caller with isSuperAdmin or isUnitAdmin is permitted before role entitlements are evaluated. SuperAdmin applies to every active UO in the user's application tenant; unit Admin applies only to the selected UO. The network caller is trusted to assert role IDs and duty flags; Access Control does not independently verify those flags with User Management. Non-null subjectId requires a matching validated Entra bearer token. Any caller reaching this route may request any tenant and unit organization.",
         "operationId": "decideAccess",
         "security": [
+          {},
           {
-            "DecisionApiKey": []
-          },
-          {
-            "DecisionApiKey": [],
             "DecisionEntraBearer": []
           }
         ],
@@ -276,7 +263,6 @@
         "operationId": "searchPolicies",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -347,7 +333,6 @@
         "operationId": "getPolicy",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -406,7 +391,6 @@
         "operationId": "upsertPolicy",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -473,7 +457,6 @@
         "operationId": "deletePolicy",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -525,7 +508,6 @@
         "operationId": "getRoleEntitlements",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -578,7 +560,6 @@
         "operationId": "replaceRoleEntitlements",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -631,7 +612,6 @@
         "operationId": "listEntitlements",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -697,7 +677,6 @@
         "operationId": "createEntitlement",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -767,7 +746,6 @@
         "operationId": "listUnitOrganizationEntitlements",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -838,7 +816,6 @@
         "operationId": "getEntitlementById",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -902,7 +879,6 @@
         "operationId": "updateEntitlementDisplayName",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -977,7 +953,6 @@
         "operationId": "setEntitlementActive",
         "security": [
           {
-            "AdminApiKey": [],
             "EntraAdminBearer": []
           }
         ],
@@ -1040,18 +1015,6 @@
   },
   "components": {
     "securitySchemes": {
-      "DecisionApiKey": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Access-Control-Key",
-        "description": "Per-client decision credential. The consuming API supplies tenant and unit organization. Startup catalog registration requires CanRegisterCatalog on the existing client."
-      },
-      "AdminApiKey": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Access-Control-Key",
-        "description": "Administrator service credential, used together with a validated Entra access token."
-      },
       "EntraAdminBearer": {
         "type": "http",
         "scheme": "bearer",
@@ -1167,7 +1130,7 @@
             "type": "string",
             "nullable": true,
             "description": "Validated Entra oid matching the forwarded bearer token; null for an anonymous public request.",
-            "example": "alice"
+            "example": "9155ff4d-2708-4770-b87e-e238645ec5df"
           },
           "httpMethod": {
             "type": "string",
@@ -1199,12 +1162,12 @@
           "isSuperAdmin": {
             "type": "boolean",
             "default": false,
-            "description": "Client-asserted tenant SuperAdmin duty. A valid decision key and matching bearer token make this sufficient to permit an existing protected policy in the selected UO."
+            "description": "Client-asserted tenant SuperAdmin duty. A matching bearer token makes this sufficient to permit an existing protected policy in the selected UO."
           },
           "isUnitAdmin": {
             "type": "boolean",
             "default": false,
-            "description": "Client-asserted Admin duty for the selected UO. A valid decision key and matching bearer token make this sufficient to permit an existing protected policy there."
+            "description": "Client-asserted Admin duty for the selected UO. A matching bearer token makes this sufficient to permit an existing protected policy there."
           }
         }
       },
@@ -1523,7 +1486,7 @@
         }
       },
       "Unauthorized": {
-        "description": "Missing or invalid API key or administrator actor bearer token"
+        "description": "Missing or invalid required Entra bearer token"
       },
       "ServiceError": {
         "description": "Service or database error",

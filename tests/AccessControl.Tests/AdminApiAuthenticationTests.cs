@@ -9,38 +9,34 @@ namespace AccessControl.Tests;
 public sealed class AdminApiAuthenticationTests
 {
     [Fact]
-    public async Task AdministratorKeyWithoutAuthenticatedActor_IsRejectedByAccessControlAsync()
+    public async Task AdministratorWithoutAuthenticatedActor_IsRejectedByAccessControlAsync()
     {
         bool accessControlCalled = false;
-        ApiKeyMiddleware access = new(_ =>
+        AccessControlRequestMiddleware access = new(_ =>
         {
             accessControlCalled = true;
             return Task.CompletedTask;
-        }, Options.Create(new ApiKeyOptions { DecisionClients = [new DecisionClientCredential { ClientId = "test", Key = "decision-key" }], AdminKey = "admin-key" }),
-            NullLogger<ApiKeyMiddleware>.Instance);
+        }, NullLogger<AccessControlRequestMiddleware>.Instance);
         DefaultHttpContext accessContext = new();
         accessContext.Request.Method = "GET";
         accessContext.Request.Path = "/v1/policies/search";
-        accessContext.Request.Headers[ApiKeyMiddleware.HeaderName] = "admin-key";
         await access.InvokeAsync(accessContext);
         Assert.Equal(StatusCodes.Status401Unauthorized, accessContext.Response.StatusCode);
         Assert.False(accessControlCalled);
     }
 
     [Fact]
-    public async Task AdministratorKeyWithAuthenticatedActor_ReachesNextMiddlewareAsync()
+    public async Task AdministratorWithAuthenticatedActor_ReachesNextMiddlewareAsync()
     {
         bool called = false;
-        ApiKeyMiddleware middleware = new(_ =>
+        AccessControlRequestMiddleware middleware = new(_ =>
         {
             called = true;
             return Task.CompletedTask;
-        }, Options.Create(new ApiKeyOptions { DecisionClients = [new DecisionClientCredential { ClientId = "test", Key = "decision-key" }], AdminKey = "admin-key" }),
-            NullLogger<ApiKeyMiddleware>.Instance);
+        }, NullLogger<AccessControlRequestMiddleware>.Instance);
         DefaultHttpContext context = new();
         context.Request.Method = "GET";
         context.Request.Path = "/v1/policies/search";
-        context.Request.Headers[ApiKeyMiddleware.HeaderName] = "admin-key";
         context.User = new ClaimsPrincipal(new ClaimsIdentity(
             [new Claim("oid", Guid.NewGuid().ToString("D"))], "TestEntra"));
 

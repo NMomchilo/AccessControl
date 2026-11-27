@@ -1,5 +1,7 @@
 # Decision API load benchmark
 
+The [keyless local run](../docs/keyless-local-benchmark-2026-11-27.md) confirms the current harness executes without API keys. Earlier SQL Server reports below are historical measurements of keyed builds.
+
 The [2026-11-24 local Redis run](../docs/redis-local-benchmark-2026-11-24.md) measures the SQLite test server with real Redis operations. Set `AccessControlBenchmark__RedisConnectionString` to add Redis to local mode; without it, local mode uses an in-process test cache. Remote mode uses the running service's configured Redis.
 
 Fresh Rancher Desktop SQL Server decision, duty-mix, cache-sensitivity, and full middleware flow measurements are in [the 2026-11-20 report](../docs/sqlserver-rancher-benchmarks-2026-11-20.md), with links to every raw run. The [support-package move flow check](../docs/sqlserver-support-package-flow-2026-11-20.md) reran the live two-service path and administrator writes. [The 2026-11-18 report](../docs/sqlserver-live-benchmarks-2026-11-18.md) is historical. `LocalIdentityProvider` supplies short-lived, locally signed JWTs over loopback HTTPS for development-only tests.
@@ -28,14 +30,13 @@ dotnet run --project benchmarks/AccessControl.Benchmarks -c Release -- `
   --output artifacts/benchmarks/local-duty-mix.json
 ```
 
-The weights are illustrative, not observed traffic. The direct decision benchmark sends role IDs and duty flags as JSON. It does not resolve duties through User Management; the full middleware flow below does that. A decision key holder can assert these flags under the current trust model.
+The weights are illustrative, not observed traffic. The direct decision benchmark sends role IDs and duty flags as JSON. It does not resolve duties through User Management; the full middleware flow below does that. A caller reaching the decision route can assert these flags under the current network trust model.
 
 ## Benchmark a staging deployment
 
-Apply the EF migrations to a dedicated Access Control staging database. Create an active `benchmark.read` entitlement for tenant `benchmark-tenant` and UO ID `33333333-3333-3333-3333-333333333333`, and use its returned ID in a protected policy for method `GET`, route `/benchmark/{id}`. Grant the entitlement to the role ID supplied by the benchmark request in Access Control. Use an Entra access token for the request oid with the audience configured in `DecisionEntra`, and a valid decision client key. Then run:
+Apply the EF migrations to a dedicated Access Control staging database. Create an active `benchmark.read` entitlement for tenant `benchmark-tenant` and UO ID `33333333-3333-3333-3333-333333333333`, and use its returned ID in a protected policy for method `GET`, route `/benchmark/{id}`. Grant the entitlement to the role ID supplied by the benchmark request in Access Control. Use an Entra access token for the request oid with the audience configured in `DecisionEntra`. Then run:
 
 ```powershell
-$env:AccessControlBenchmark__DecisionKey = '<staging decision key>'
 $env:AccessControlBenchmark__BearerToken = '<Entra access token for the benchmark oid>'
 dotnet run --project benchmarks/AccessControl.Benchmarks -c Release -- `
   --remote-url https://staging-access-control.example/ `
@@ -61,7 +62,7 @@ The [available-policy benchmark report](../docs/available-policy-mix-benchmark-2
 
 ## Full JWT → User Management → Access Control → controller flow
 
-The [access-flow benchmark](AccessFlow.Benchmarks/Program.cs) starts a temporary consuming API, validates locally signed RS256 JWTs, adds a benchmark-only `Gateway` identity for UO ID `33333333-3333-3333-3333-333333333333`, runs both real middleware clients, calls the two live services backed by Docker SQL Server, and checks that the controller ran. It measures one cached user and a configurable set of existing users. Create the UO and role explicitly, then provision each oid and UO membership and assign the role ID through User Management administrator APIs. Put one oid GUID per line in a text file. Configure the four service URL/key settings as environment variables. Seed `GET /integration/{id}` in the same UO with an `integration.view` grant for that role ID in Access Control. This benchmark exercises the role-grant path; duty overrides are covered by the direct decision workload above. Then run:
+The [access-flow benchmark](AccessFlow.Benchmarks/Program.cs) starts a temporary consuming API, validates locally signed RS256 JWTs, adds a benchmark-only `Gateway` identity for UO ID `33333333-3333-3333-3333-333333333333`, runs both real middleware clients, calls the two live services backed by Docker SQL Server, and checks that the controller ran. It measures one cached user and a configurable set of existing users. Create the UO and role explicitly, then provision each oid and UO membership and assign the role ID through User Management administrator APIs. Put one oid GUID per line in a text file. Configure the two service URLs as environment variables. Seed `GET /integration/{id}` in the same UO with an `integration.view` grant for that role ID in Access Control. This benchmark exercises the role-grant path; duty overrides are covered by the direct decision workload above. Then run:
 
 ```powershell
 dotnet run --project benchmarks/AccessFlow.Benchmarks -c Release -- `
@@ -73,4 +74,4 @@ The [UO benchmark report](../docs/unit-organization-benchmark-2026-11-10.md) con
 
 ## User Management benchmark
 
-The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses AccessControl.Client 0.17.0 and UserManagement.Client 0.18.0 from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.
+The direct user-resolution and cache benchmark lives in the separate `UserManagement` repository. This benchmark uses AccessControl.Client and UserManagement.Client 0.21.0 from `.packages`, as does the rest of this repository. The combined access-flow benchmark above calls both running services.

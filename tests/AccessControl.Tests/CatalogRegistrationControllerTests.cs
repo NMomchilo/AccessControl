@@ -20,10 +20,6 @@ public sealed class CatalogRegistrationControllerTests
     {
         CatalogRegistrationController controller = new(new ConflictingCatalog());
         DefaultHttpContext context = new();
-        context.Items[nameof(DecisionClientCredential)] = new DecisionClientCredential
-        {
-            CanRegisterCatalog = true, ClientId = "customer-api"
-        };
         controller.ControllerContext = new ControllerContext { HttpContext = context };
 
         IActionResult result = await controller.RegisterAsync(new CatalogRegistrationRequest(
@@ -35,30 +31,25 @@ public sealed class CatalogRegistrationControllerTests
 
     private sealed class ConflictingCatalog : ICatalogRegistrationService
     {
-        public Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request, string clientId,
+        public Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request,
             CancellationToken cancellationToken) => throw new CatalogRegistrationConflictException();
     }
 
     [Fact]
-    public async Task Registration_RequiresOptInAndNonemptyOrganizationAsync()
+    public async Task Registration_RejectsEmptyOrganizationAsync()
     {
-        CatalogRegistrationController controller = new(null!);
+        CatalogRegistrationController controller = new(new ConflictingCatalog());
         DefaultHttpContext context = new();
         controller.ControllerContext = new ControllerContext { HttpContext = context };
         CatalogRegistrationRequest request = new("default", Guid.NewGuid(),
             [new CatalogEndpoint("GET", "/customers/{id}")]);
 
-        Assert.IsType<ForbidResult>(await controller.RegisterAsync(request, default));
-        context.Items[nameof(DecisionClientCredential)] = new DecisionClientCredential
-        {
-            CanRegisterCatalog = true, ClientId = "customer-api"
-        };
         Assert.IsType<BadRequestResult>(await controller.RegisterAsync(
             request with { UnitOrganizationId = Guid.Empty }, default));
     }
 
     [Fact]
-    public async Task OptedInClientRegistersOrganizationProvidedByApiAsync()
+    public async Task CatalogRegistersOrganizationProvidedByApiAsync()
     {
         Guid organization = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         await using SqliteConnection connection = new("Data Source=:memory:");
@@ -71,10 +62,6 @@ public sealed class CatalogRegistrationControllerTests
         CatalogRegistrationController controller = new(new CatalogRegistrationStore(db, cache,
             NullLogger<CatalogRegistrationStore>.Instance));
         DefaultHttpContext context = new();
-        context.Items[nameof(DecisionClientCredential)] = new DecisionClientCredential
-        {
-            CanRegisterCatalog = true, ClientId = "customer-api"
-        };
         controller.ControllerContext = new ControllerContext { HttpContext = context };
         CatalogRegistrationRequest request = new("another-tenant", organization,
             [new CatalogEndpoint("GET", "/customers/{id}")]);

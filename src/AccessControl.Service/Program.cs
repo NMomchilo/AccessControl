@@ -30,7 +30,7 @@ builder.Services.AddScoped<IIdentityService, IdentityService>();
 builder.Services.AddOptions<UserManagementAdminLookupOptions>()
     .Bind(builder.Configuration.GetSection(UserManagementAdminLookupOptions.SectionName))
     .Validate(UserManagementAdminLookupOptions.IsValid,
-        "UserManagementAdminLookup needs an absolute service URL and a 32-character lookup key.")
+        "UserManagementAdminLookup needs an absolute service URL.")
     .Validate(value => builder.Environment.IsDevelopment() ||
         Uri.TryCreate(value.ServiceUrl, UriKind.Absolute, out Uri? uri) && uri.Scheme == Uri.UriSchemeHttps,
         "UserManagementAdminLookup must use HTTPS outside Development.")
@@ -42,11 +42,6 @@ builder.Services.AddHttpClient<IAdminScopeAuthorizer, UserManagementAdminScopeAu
     client.BaseAddress = new Uri(lookup.ServiceUrl);
     client.Timeout = TimeSpan.FromSeconds(3);
 });
-builder.Services.AddOptions<ApiKeyOptions>()
-    .Bind(builder.Configuration.GetSection(ApiKeyOptions.SectionName))
-    .Validate(ApiKeyOptions.IsValid,
-        "Configure distinct scoped decision clients and administrator credentials.")
-    .ValidateOnStart();
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
@@ -64,7 +59,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 app.UseAuthentication();
-app.UseMiddleware<ApiKeyMiddleware>();
+app.UseMiddleware<AccessControlRequestMiddleware>();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapGet("/ready", async (AccessControlDbContext db, CancellationToken cancellationToken) =>
     await db.Database.CanConnectAsync(cancellationToken)

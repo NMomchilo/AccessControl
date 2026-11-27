@@ -9,11 +9,9 @@ namespace AccessControl.Infrastructure.Database;
 public sealed class CatalogRegistrationStore(AccessControlDbContext db, IAuthorizationCache cache,
     ILogger<CatalogRegistrationStore> logger) : ICatalogRegistrationService
 {
-    public async Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request, string clientId,
+    public async Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(clientId) || clientId.Length > 200)
-            throw new ArgumentException("A validated client ID is required.", nameof(clientId));
         for (int attempt = 0; attempt < 2; attempt++)
         {
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -57,8 +55,8 @@ public sealed class CatalogRegistrationStore(AccessControlDbContext db, IAuthori
                 }
                 await transaction.CommitAsync(cancellationToken);
                 if (policiesCreated > 0) cache.InvalidateAll("catalog registration");
-                logger.LogInformation("Catalog registered for {TenantId} {UnitOrganizationId} by {ClientId}; policies {PoliciesCreated}",
-                    request.TenantId, request.UnitOrganizationId, clientId, policiesCreated);
+                logger.LogInformation("Catalog registered for {TenantId} {UnitOrganizationId}; policies {PoliciesCreated}",
+                    request.TenantId, request.UnitOrganizationId, policiesCreated);
                 return new CatalogRegistrationResult(policiesCreated);
             }
             catch (DbUpdateException) when (attempt == 0)

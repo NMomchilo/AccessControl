@@ -27,7 +27,7 @@ public sealed class CatalogRegistrationTests
         CatalogRegistrationRequest request = new("default", Organization,
             [new CatalogEndpoint("GET", "/customers/{id}")]);
 
-        Assert.Equal(new CatalogRegistrationResult(1), await store.RegisterAsync(request, "customer-api", default));
+        Assert.Equal(new CatalogRegistrationResult(1), await store.RegisterAsync(request, default));
         EndpointPolicyEntity policy = await db.EndpointPolicies.SingleAsync();
         Assert.False(policy.IsPublic);
         Assert.Empty(policy.RequiredEntitlements);
@@ -35,9 +35,9 @@ public sealed class CatalogRegistrationTests
             NullLogger<SqlAuthorizationStore>.Instance), NullLogger<AuthorizationService>.Instance);
         await administration.UpsertPolicyAsync(new PolicyRequest("default", "GET",
             "/customers/{id}", true, [], Organization), default);
-        Assert.Equal(new CatalogRegistrationResult(0), await store.RegisterAsync(request, "customer-api", default));
+        Assert.Equal(new CatalogRegistrationResult(0), await store.RegisterAsync(request, default));
         Assert.True((await db.EndpointPolicies.SingleAsync()).IsPublic);
-        Assert.Equal(new CatalogRegistrationResult(0), await store.RegisterAsync(request, "another-api", default));
+        Assert.Equal(new CatalogRegistrationResult(0), await store.RegisterAsync(request, default));
         Assert.True((await db.EndpointPolicies.SingleAsync()).IsPublic);
     }
 
@@ -60,7 +60,7 @@ public sealed class CatalogRegistrationTests
         CatalogRegistrationStore store = new(db, cache, NullLogger<CatalogRegistrationStore>.Instance);
 
         CatalogRegistrationResult result = await store.RegisterAsync(new("default", Organization,
-            [new CatalogEndpoint("GET", "/health")]), "customer-api", default);
+            [new CatalogEndpoint("GET", "/health")]), default);
 
         Assert.Equal(1, result.PoliciesCreated);
         Assert.Equal(2, await db.EndpointPolicies.CountAsync());

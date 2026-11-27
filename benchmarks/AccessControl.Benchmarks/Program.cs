@@ -30,7 +30,6 @@ namespace AccessControl.Benchmarks;
 
 internal static class Program
 {
-    private const string DecisionKey = "local-benchmark-decision-key-0123456789";
     private const string BenchmarkBearer = "benchmark-token";
     private const string BenchmarkOid = "9155ff4d-2708-4770-b87e-e238645ec5df";
     private static readonly Guid Reader = Guid.Parse("10954aa4-7532-80de-a80e-a7be3ad4c991");
@@ -50,20 +49,18 @@ internal static class Program
             List<BenchmarkResult> results = [];
             if (settings.RemoteUrl is not null)
             {
-                string key = Environment.GetEnvironmentVariable("AccessControlBenchmark__DecisionKey")
-                    ?? throw new ArgumentException("Set AccessControlBenchmark__DecisionKey for remote mode.");
                 using HttpClient client = new() { BaseAddress = new Uri(settings.RemoteUrl), Timeout = TimeSpan.FromSeconds(10) };
                 string? bearer = Environment.GetEnvironmentVariable("AccessControlBenchmark__BearerToken");
                 if (cases.Any(item => item.Request.SubjectId is not null) && string.IsNullOrWhiteSpace(bearer))
                     throw new ArgumentException("Set AccessControlBenchmark__BearerToken for protected remote decisions.");
-                await MeasureAllAsync("remote SQL Server service", client, key, bearer, settings, cases, results);
+                await MeasureAllAsync("remote SQL Server service", client, bearer, settings, cases, results);
             }
             else
             {
                 await using (BenchmarkFactory fake = new(BenchmarkStore.Fake))
                 {
                     using HttpClient client = fake.CreateClient();
-                    await MeasureAllAsync("in-memory store", client, DecisionKey, BenchmarkBearer, settings, cases, results);
+                    await MeasureAllAsync("in-memory store", client, BenchmarkBearer, settings, cases, results);
                 }
 
                 string dataSource = $"access-control-benchmark-{Guid.NewGuid():N}";
@@ -75,7 +72,7 @@ internal static class Program
                     using HttpClient client = sqlite.CreateClient();
                     await SeedAsync(sqlite.Services);
                     await MeasureAllAsync(Environment.GetEnvironmentVariable("AccessControlBenchmark__RedisConnectionString") is null
-                        ? "SQLite store with test cache" : "SQLite store with Redis", client, DecisionKey, BenchmarkBearer, settings, cases, results);
+                        ? "SQLite store with test cache" : "SQLite store with Redis", client, BenchmarkBearer, settings, cases, results);
                 }
             }
 
@@ -139,15 +136,15 @@ internal static class Program
         await store.ReplaceRoleEntitlementsAsync("benchmark-tenant", Organization, Reader, [BenchmarkRead], CancellationToken.None);
     }
 
-    private static async Task MeasureAllAsync(string scenario, HttpClient client, string key, string? bearer,
+    private static async Task MeasureAllAsync(string scenario, HttpClient client, string? bearer,
         Settings settings, IReadOnlyList<BenchmarkCase> cases, List<BenchmarkResult> results)
     {
         foreach (int concurrency in settings.Concurrency)
         {
-            await SendBatchAsync(client, key, bearer, Math.Min(200, settings.RequestCount), concurrency, cases, null);
+            await SendBatchAsync(client, bearer, Math.Min(200, settings.RequestCount), concurrency, cases, null);
             long[] ticks = new long[settings.RequestCount];
             Stopwatch wall = Stopwatch.StartNew();
-            await SendBatchAsync(client, key, bearer, settings.RequestCount, concurrency, cases, ticks);
+            await SendBatchAsync(client, bearer, settings.RequestCount, concurrency, cases, ticks);
             wall.Stop();
             Array.Sort(ticks);
             double ToMs(long value) => value * 1000.0 / Stopwatch.Frequency;
@@ -157,7 +154,7 @@ internal static class Program
         }
     }
 
-    private static async Task SendBatchAsync(HttpClient client, string key, string? bearer, int count, int concurrency,
+    private static async Task SendBatchAsync(HttpClient client, string? bearer, int count, int concurrency,
         IReadOnlyList<BenchmarkCase> cases, long[]? ticks)
     {
         int next = -1;
@@ -188,7 +185,6 @@ internal static class Program
                 {
                     Content = JsonContent.Create(selected.Request)
                 };
-                message.Headers.Add("X-Access-Control-Key", key);
                 if (selected.Request.SubjectId is not null && bearer is not null)
                     message.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer);
                 long started = Stopwatch.GetTimestamp();
@@ -265,18 +261,12 @@ internal static class Program
             builder.UseContentRoot(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
                 "../../../../../src/AccessControl.Service")));
             builder.UseSetting("ConnectionStrings:AccessControl", "Server=localhost;Database=unused;Trusted_Connection=True");
-            builder.UseSetting("ApiKeys:DecisionClients:0:ClientId", "benchmark-local");
-            builder.UseSetting("ApiKeys:DecisionClients:0:Key", DecisionKey);
-            builder.UseSetting("ApiKeys:DecisionClients:0:Tenants:0", "benchmark-tenant");
-            builder.UseSetting("ApiKeys:DecisionClients:0:AllowAnyUnitOrganization", "true");
-            builder.UseSetting("ApiKeys:AdminKey", "local-benchmark-admin-key-0123456789");
             builder.UseSetting("EntraAdmin:Authority", "https://login.microsoftonline.com/test/v2.0");
             builder.UseSetting("EntraAdmin:Audience", "api://benchmark-admin");
             builder.UseSetting("DecisionEntra:Authority", "https://login.microsoftonline.com/test/v2.0");
             builder.UseSetting("DecisionEntra:Audience", "api://benchmark-decision");
             builder.UseSetting("DecisionEntra:AuthenticationScheme", "BenchmarkEntra");
             builder.UseSetting("UserManagementAdminLookup:ServiceUrl", "http://localhost:5220");
-            builder.UseSetting("UserManagementAdminLookup:LookupKey", new string('a', 40));
             builder.ConfigureLogging(logging => logging.ClearProviders());
             builder.ConfigureTestServices(services =>
             {

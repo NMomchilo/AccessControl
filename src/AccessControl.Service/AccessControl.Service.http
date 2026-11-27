@@ -1,45 +1,28 @@
-@host = https://localhost:7001
-@decisionKey = replace-with-decision-key
-@adminKey = replace-with-admin-key
+@host = https://localhost:7219
+@actorToken = replace-with-validated-entra-user-token
+@subjectOid = 9155ff4d-2708-4770-b87e-e238645ec5df
+@unitOrganizationId = aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 
+### Liveness
 GET {{host}}/health
 
 ### Database readiness
 GET {{host}}/ready
 
-### Decision
+### Protected decision. The bearer token oid must match subjectId.
 POST {{host}}/v1/decisions
 Content-Type: application/json
-X-Access-Control-Key: {{decisionKey}}
+Authorization: Bearer {{actorToken}}
 
 {
-  "subjectId": "alice",
-  "roles": ["advisor"],
+  "subjectId": "{{subjectOid}}",
+  "tenantId": "default",
+  "unitOrganizationId": "{{unitOrganizationId}}",
   "httpMethod": "GET",
   "routeTemplate": "/customers/{id}",
-  "tenantId": "tenant-a"
+  "roleIds": []
 }
 
-### Endpoint policy
-PUT {{host}}/v1/policies
-Content-Type: application/json
-X-Access-Control-Key: {{adminKey}}
-
-{
-  "tenantId": "tenant-a",
-  "httpMethod": "GET",
-  "routeTemplate": "/customers/{id}",
-  "isPublic": false,
-  "requiredEntitlements": ["customers.view"]
-}
-
-### Role grant
-PUT {{host}}/v1/roles/entitlements
-Content-Type: application/json
-X-Access-Control-Key: {{adminKey}}
-
-{
-  "tenantId": "tenant-a",
-  "role": "advisor",
-  "entitlements": ["customers.view"]
-}
+### Exact endpoint policy. Administrator duty is checked using the bearer token.
+GET {{host}}/v1/policies?tenantId=default&unitOrganizationId={{unitOrganizationId}}&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D
+Authorization: Bearer {{actorToken}}

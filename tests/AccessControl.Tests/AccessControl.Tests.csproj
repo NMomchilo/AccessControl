@@ -27,9 +27,9 @@
     <PackageReference Include="AdminManagement.Security" Version="0.17.0" />
     <ProjectReference Include="..\..\src\AccessControl.Domain\AccessControl.Domain.csproj" />
     <PackageReference Include="AccessControl.Contracts" Version="0.17.0" />
-    <PackageReference Include="AccessControl.Client" Version="0.17.0" />
+    <PackageReference Include="AccessControl.Client" Version="0.21.0" />
     <ProjectReference Include="..\..\src\AccessControl.Service\AccessControl.Service.csproj" />
-    <PackageReference Include="UserManagement.Client" Version="0.18.0" />
+    <PackageReference Include="UserManagement.Client" Version="0.21.0" />
   </ItemGroup>
 
 </Project>

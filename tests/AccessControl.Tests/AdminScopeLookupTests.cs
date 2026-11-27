@@ -16,9 +16,11 @@ public sealed class AdminScopeLookupTests
         Guid oid = Guid.NewGuid();
         Guid allowed = Guid.NewGuid();
         string? forwardedBearer = null;
+        bool lookupKeyPresent = false;
         using HttpClient client = new(new ReplyHandler(request =>
         {
             forwardedBearer = request.Headers.Authorization?.Parameter;
+            lookupKeyPresent = request.Headers.Contains("X-User-Management-Key");
             string response = JsonSerializer.Serialize(new
             {
                 isActive = true, isSuperAdmin = false,
@@ -32,14 +34,12 @@ public sealed class AdminScopeLookupTests
         context.Request.Headers.Authorization = "Bearer signed-actor-token";
         HttpContextAccessor accessor = new() { HttpContext = context };
         UserManagementAdminScopeAuthorizer authorizer = new(client, accessor,
-            Options.Create(new UserManagementAdminLookupOptions
-            {
-                ServiceUrl = "http://localhost:5220", LookupKey = new string('k', 40)
-            }), NullLogger<UserManagementAdminScopeAuthorizer>.Instance);
+            NullLogger<UserManagementAdminScopeAuthorizer>.Instance);
 
         Assert.True(await authorizer.CanManageAsync(oid.ToString("D"), "default", allowed, false, CancellationToken.None));
         Assert.False(await authorizer.CanManageAsync(oid.ToString("D"), "default", allowed, true, CancellationToken.None));
         Assert.Equal("signed-actor-token", forwardedBearer);
+        Assert.False(lookupKeyPresent);
     }
 
     [Theory]
@@ -56,8 +56,6 @@ public sealed class AdminScopeLookupTests
             [new Claim("oid", oid.ToString("D"))], "Bearer"));
         HttpContextAccessor accessor = new() { HttpContext = context };
         UserManagementAdminScopeAuthorizer authorizer = new(client, accessor,
-            Options.Create(new UserManagementAdminLookupOptions
-            { ServiceUrl = "http://localhost:5220", LookupKey = new string('k', 40) }),
             NullLogger<UserManagementAdminScopeAuthorizer>.Instance);
 
         Assert.False(await authorizer.CanManageAsync(Guid.NewGuid().ToString("D"), "default",

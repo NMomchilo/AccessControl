@@ -4,7 +4,7 @@ namespace AccessControl.Application;
 
 public interface ICatalogRegistrationService
 {
-    Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request, string clientId,
+    Task<CatalogRegistrationResult> RegisterAsync(CatalogRegistrationRequest request,
         CancellationToken cancellationToken);
 }
 

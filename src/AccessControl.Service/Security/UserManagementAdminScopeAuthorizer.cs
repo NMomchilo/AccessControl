@@ -1,13 +1,11 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using AccessControl.Application;
-using Microsoft.Extensions.Options;
 
 namespace AccessControl.Service.Security;
 
 public sealed class UserManagementAdminScopeAuthorizer(HttpClient client, IHttpContextAccessor contextAccessor,
-    IOptions<UserManagementAdminLookupOptions> options, ILogger<UserManagementAdminScopeAuthorizer> logger)
+    ILogger<UserManagementAdminScopeAuthorizer> logger)
     : IAdminScopeAuthorizer
 {
     public async Task<bool> CanManageAsync(string actorObjectId, string tenantId, Guid? unitOrganizationId,
@@ -33,7 +31,6 @@ public sealed class UserManagementAdminScopeAuthorizer(HttpClient client, IHttpC
             (lookupOrganization.HasValue ? $"&unitOrganizationId={lookupOrganization.Value:D}" : string.Empty);
         using HttpRequestMessage request = new(HttpMethod.Get, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer.Parameter);
-        request.Headers.Add("X-User-Management-Key", options.Value.LookupKey);
         HttpResponseMessage response;
         try
         {

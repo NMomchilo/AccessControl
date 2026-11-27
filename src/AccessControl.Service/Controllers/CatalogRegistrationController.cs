@@ -14,9 +14,6 @@ public sealed class CatalogRegistrationController(ICatalogRegistrationService st
     public async Task<IActionResult> RegisterAsync([FromBody] CatalogRegistrationRequest request,
         CancellationToken cancellationToken)
     {
-        if (HttpContext.Items[nameof(DecisionClientCredential)] is not DecisionClientCredential client ||
-            !client.CanRegisterCatalog)
-            return Forbid();
         if (request is null || string.IsNullOrWhiteSpace(request.TenantId) || request.TenantId.Length > 128 ||
             request.UnitOrganizationId == Guid.Empty || request.Endpoints is null || request.Endpoints.Count > 1000 ||
             request.Endpoints.Any(endpoint => endpoint is null ||
@@ -36,7 +33,7 @@ public sealed class CatalogRegistrationController(ICatalogRegistrationService st
                 endpoint.RouteTemplate.Length > 512)) return BadRequest();
         try
         {
-            return Ok(await store.RegisterAsync(normalized, client.ClientId, cancellationToken));
+            return Ok(await store.RegisterAsync(normalized, cancellationToken));
         }
         catch (CatalogRegistrationConflictException)
         {

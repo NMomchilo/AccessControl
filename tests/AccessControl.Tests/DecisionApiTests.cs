@@ -21,7 +21,7 @@ public sealed class DecisionApiTests
     private static readonly Guid Advisor = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid Organization = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     [Fact]
-    public async Task PostDecision_ValidDecisionKey_ReturnsPermitAsync()
+    public async Task PostDecision_ValidBearer_ReturnsPermitAsync()
     {
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
@@ -29,7 +29,6 @@ public sealed class DecisionApiTests
         {
             Content = JsonContent.Create(new DecisionRequest("aaaaaaaa-1111-1111-1111-111111111111", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]))
         };
-        message.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
 
         using HttpResponseMessage response = await client.SendAsync(message);
         DecisionResponse? result = await response.Content.ReadFromJsonAsync<DecisionResponse>();
@@ -51,7 +50,6 @@ public sealed class DecisionApiTests
                 "aaaaaaaa-1111-1111-1111-111111111111", "GET", "/customers/{id}",
                 "tenant-a", Organization, [], isSuperAdmin, isUnitAdmin))
         };
-        message.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
 
         using HttpResponseMessage response = await client.SendAsync(message);
         DecisionResponse? result = await response.Content.ReadFromJsonAsync<DecisionResponse>();
@@ -73,7 +71,6 @@ public sealed class DecisionApiTests
             Content = JsonContent.Create(new DecisionRequest(
                 mismatchedOid ? Guid.NewGuid().ToString("D") : "aaaaaaaa-1111-1111-1111-111111111111", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]))
         };
-        message.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
 
         using HttpResponseMessage response = await client.SendAsync(message);
 
@@ -81,7 +78,7 @@ public sealed class DecisionApiTests
     }
 
     [Fact]
-    public async Task EntitlementAdministration_RequiresAdministratorCredentialAsync()
+    public async Task EntitlementAdministration_RequiresAuthenticatedActorAsync()
     {
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
@@ -90,7 +87,7 @@ public sealed class DecisionApiTests
         {
             Content = JsonContent.Create(request)
         };
-        denied.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
+        denied.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "invalid-token");
         using HttpResponseMessage deniedResponse = await client.SendAsync(denied);
         Assert.Equal(HttpStatusCode.Unauthorized, deniedResponse.StatusCode);
 
@@ -111,7 +108,7 @@ public sealed class DecisionApiTests
         {
             Content = JsonContent.Create(new UpdateEntitlementDisplayNameRequest("New name"))
         };
-        deniedRename.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
+        deniedRename.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "invalid-token");
         using HttpResponseMessage deniedRenameResponse = await client.SendAsync(deniedRename);
         Assert.Equal(HttpStatusCode.Unauthorized, deniedRenameResponse.StatusCode);
         using HttpResponseMessage renamed = await SendAdminAsync(client, HttpMethod.Put, renamePath,
@@ -142,7 +139,7 @@ public sealed class DecisionApiTests
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage denied = new(HttpMethod.Get, "/v1/policies/search?tenantId=tenant-a");
-        denied.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
+        denied.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "invalid-token");
         using HttpResponseMessage deniedResponse = await client.SendAsync(denied);
         Assert.Equal(HttpStatusCode.Unauthorized, deniedResponse.StatusCode);
 
@@ -156,7 +153,7 @@ public sealed class DecisionApiTests
     }
 
     [Fact]
-    public async Task PostDecision_AdminKey_IsRejectedAsync()
+    public async Task PostDecision_InvalidBearer_IsRejectedAsync()
     {
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
@@ -164,7 +161,7 @@ public sealed class DecisionApiTests
         {
             Content = JsonContent.Create(new DecisionRequest("aaaaaaaa-1111-1111-1111-111111111111", "GET", "/customers/{id}", "tenant-a", Organization, [Advisor]))
         };
-        message.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "invalid-token");
 
         using HttpResponseMessage response = await client.SendAsync(message);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
@@ -183,7 +180,6 @@ public sealed class DecisionApiTests
                 httpMethod = "GET", routeTemplate = "/customers/{id}", tenantId = "tenant-a"
             })
         };
-        message.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
 
         using HttpResponseMessage response = await client.SendAsync(message);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -203,20 +199,18 @@ public sealed class DecisionApiTests
                 requiredEntitlementIds = Array.Empty<Guid>()
             })
         };
-        message.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
 
         using HttpResponseMessage response = await client.SendAsync(message);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
-    public async Task GetPolicy_AdminKey_ReturnsEndpointPolicyAsync()
+    public async Task GetPolicy_AuthenticatedActor_ReturnsEndpointPolicyAsync()
     {
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage message = new(HttpMethod.Get,
             $"/v1/policies?tenantId=tenant-a&unitOrganizationId={Organization:D}&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D");
-        message.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
 
         using HttpResponseMessage response = await client.SendAsync(message);
         PolicyRequest? policy = await response.Content.ReadFromJsonAsync<PolicyRequest>();
@@ -233,7 +227,6 @@ public sealed class DecisionApiTests
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage message = new(HttpMethod.Get,
             "/v1/policies?tenantId=tenant-a&httpMethod=GET&routeTemplate=%2Fcustomers%2F%7Bid%7D");
-        message.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
 
         using HttpResponseMessage response = await client.SendAsync(message);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -270,7 +263,6 @@ public sealed class DecisionApiTests
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage message = new(HttpMethod.Get,
             $"/v1/roles/entitlements?tenantId=tenant-a&unitOrganizationId={Organization:D}&roleId={Advisor:D}");
-        message.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
 
         using HttpResponseMessage response = await client.SendAsync(message);
         RoleEntitlementsRequest? grants = await response.Content.ReadFromJsonAsync<RoleEntitlementsRequest>();
@@ -281,25 +273,25 @@ public sealed class DecisionApiTests
     }
 
     [Fact]
-    public async Task EntitlementLists_RequireAdminKeyAndReturnScopedPagesAsync()
+    public async Task EntitlementLists_RequireAuthenticatedActorAndReturnScopedPagesAsync()
     {
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
-        using HttpResponseMessage missingKey = await client.GetAsync("/v1/entitlements?tenantId=tenant-a");
+        using HttpRequestMessage missingIdentityRequest = new(HttpMethod.Get, "/v1/entitlements?tenantId=tenant-a");
+        missingIdentityRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "invalid-token");
+        using HttpResponseMessage missingIdentity = await client.SendAsync(missingIdentityRequest);
         using HttpRequestMessage decisionKeyRequest = new(HttpMethod.Get, "/v1/entitlements?tenantId=tenant-a");
-        decisionKeyRequest.Headers.Add("X-Access-Control-Key", "decision-test-key-0123456789abcdef");
+        decisionKeyRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "invalid-token");
         using HttpResponseMessage decisionKey = await client.SendAsync(decisionKeyRequest);
         using HttpRequestMessage allRequest = new(HttpMethod.Get, "/v1/entitlements?tenantId=tenant-a&page=1&pageSize=1");
-        allRequest.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
         using HttpResponseMessage all = await client.SendAsync(allRequest);
         EntitlementPageResponse? allPage = await all.Content.ReadFromJsonAsync<EntitlementPageResponse>();
         using HttpRequestMessage scopedRequest = new(HttpMethod.Get,
             $"/v1/unit-organizations/{Organization:D}/entitlements?tenantId=tenant-a");
-        scopedRequest.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
         using HttpResponseMessage scoped = await client.SendAsync(scopedRequest);
         EntitlementPageResponse? scopedPage = await scoped.Content.ReadFromJsonAsync<EntitlementPageResponse>();
 
-        Assert.Equal(HttpStatusCode.Unauthorized, missingKey.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, missingIdentity.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, decisionKey.StatusCode);
         Assert.Equal(HttpStatusCode.OK, all.StatusCode);
         Assert.Equal(["customers.view"], allPage?.Items.Select(item => item.DisplayName));
@@ -320,7 +312,6 @@ public sealed class DecisionApiTests
         await using ApiFactory factory = new();
         using HttpClient client = factory.CreateClient();
         using HttpRequestMessage message = new(HttpMethod.Get, path);
-        message.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
 
         using HttpResponseMessage response = await client.SendAsync(message);
 
@@ -330,7 +321,6 @@ public sealed class DecisionApiTests
     private static async Task<HttpResponseMessage> SendAdminAsync<T>(HttpClient client, HttpMethod method, string path, T body)
     {
         using HttpRequestMessage message = new(method, path) { Content = body is null ? null : JsonContent.Create(body) };
-        message.Headers.Add("X-Access-Control-Key", "admin-test-key-0123456789abcdef-1");
         return await client.SendAsync(message);
     }
 
@@ -346,16 +336,12 @@ public sealed class DecisionApiTests
         {
             builder.UseSetting("AccessControlDatabase:ApplyMigrationsOnStartup", "false");
             builder.UseSetting("ConnectionStrings:AccessControl", "Server=localhost;Database=unused;Trusted_Connection=True");
-            builder.UseSetting("ApiKeys:DecisionClients:0:ClientId", "customer-test");
-            builder.UseSetting("ApiKeys:DecisionClients:0:Key", "decision-test-key-0123456789abcdef");
-            builder.UseSetting("ApiKeys:AdminKey", "admin-test-key-0123456789abcdef-1");
             builder.UseSetting("EntraAdmin:Authority", "https://login.microsoftonline.com/test-tenant/v2.0");
             builder.UseSetting("EntraAdmin:Audience", "api://test-admin");
             builder.UseSetting("DecisionEntra:Authority", "https://login.microsoftonline.com/test-tenant/v2.0");
             builder.UseSetting("DecisionEntra:Audience", "api://test-decision");
             builder.UseSetting("DecisionEntra:AuthenticationScheme", "TestEntra");
             builder.UseSetting("UserManagementAdminLookup:ServiceUrl", "http://localhost:5220");
-            builder.UseSetting("UserManagementAdminLookup:LookupKey", new string('l', 40));
             builder.ConfigureTestServices(services =>
             {
                 services.AddAuthentication(options => options.DefaultAuthenticateScheme = "TestEntra")
